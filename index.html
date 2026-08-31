@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -477,6 +478,11 @@ const SUPABASE_URL = 'https://rpibvjcnrseuugpkfmdj.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwaWJ2amNucnNldXVncGtmbWRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTc3MTcsImV4cCI6MjA5NzEzMzcxN30.ecihol8JESMH7cgFSvWKIzp-OwoPRFqdK3aCDwpCeg8';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Plugin de rótulo de dados nas barras/fatias — registrado globalmente mas
+// desligado por padrão (só liga explicitamente nos gráficos da Visão Geral,
+// senão polui gráficos que já têm eixo/legenda suficiente).
+if(window.ChartDataLabels){ Chart.register(ChartDataLabels); Chart.defaults.set('plugins.datalabels', {display:false}); }
+
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtMoney(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtMi(v){ return 'R$ ' + ((Number(v)||0)/1000000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' M'; }
@@ -791,26 +797,50 @@ function renderGraficos(){
       <div class="dash-card-head"><span>${esc(g.label || 'Carteira')}</span></div>
       <div class="dash-card-body" style="height:280px;"><canvas id="chartDin${i}"></canvas></div>
     </div>`).join('');
+  const MAX_CATEGORIAS = 10;
   lista.forEach((cfg,i) => {
-    const porGrupo = {};
-    SNAPSHOT.filter(r => r._status !== 'encerrado').forEach(r => {
-      const g = r[cfg.campo] || 'Outros/Não classificado';
-      const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
-      porGrupo[g] = (porGrupo[g]||0) + v;
-    });
-    // Maior valor primeiro — deixa o gráfico mais legível e evita barra/fatia
-    // minúscula ao lado de uma gigante em ordem aleatória.
-    const entradas = Object.entries(porGrupo).sort((a,b) => b[1]-a[1]);
+    const ativos = SNAPSHOT.filter(r => r._status !== 'encerrado');
+    let entradas;
+    let ehMoeda = !!cfg.valor;
+    if(cfg.buckets){
+      // Tipo "buckets": soma vários campos numéricos separados como se
+      // fossem categorias (ex: Prognóstico quando não existe 1 campo de
+      // risco só, mas sim Total Provável/Possível/Remoto em colunas à parte).
+      ehMoeda = true;
+      entradas = cfg.buckets.map(b => [b.label, ativos.reduce((s,r) => s + (Number(r[b.campo])||0), 0)]);
+    } else {
+      const porGrupo = {};
+      ativos.forEach(r => {
+        const g = r[cfg.campo] || 'Outros/Não classificado';
+        const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
+        porGrupo[g] = (porGrupo[g]||0) + v;
+      });
+      // Maior valor primeiro — deixa o gráfico mais legível e evita barra/fatia
+      // minúscula ao lado de uma gigante em ordem aleatória.
+      entradas = Object.entries(porGrupo).sort((a,b) => b[1]-a[1]);
+      // Muitas categorias (ex: código de departamento) viram ilegíveis —
+      // mantém as N maiores e agrupa o resto em "Outros".
+      if(entradas.length > MAX_CATEGORIAS){
+        const top = entradas.slice(0, MAX_CATEGORIAS);
+        const restoSoma = entradas.slice(MAX_CATEGORIAS).reduce((s,e) => s+e[1], 0);
+        const restoQtd = entradas.length - MAX_CATEGORIAS;
+        entradas = [...top, [`Outros (${restoQtd})`, restoSoma]];
+      }
+    }
     const labels = entradas.map(e => e[0]);
     const vals = entradas.map(e => e[1]);
     const tipo = cfg.tipo || 'bar';
+    const fmtRotulo = v => ehMoeda ? fmtMi(v) : String(v);
     const chart = new Chart(document.getElementById(`chartDin${i}`), {
       type: tipo,
       data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? CORES_GRAFICO : CORES_GRAFICO[i % CORES_GRAFICO.length], maxBarThickness: 56 }] },
       options: tipo==='doughnut'
-        ? { maintainAspectRatio: false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:14}}} }
-        : { maintainAspectRatio: false, plugins:{legend:{display:false}},
-            scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:0 } } } },
+        ? { maintainAspectRatio: false, plugins:{
+              legend:{position:'bottom', labels:{boxWidth:12,padding:14}},
+              datalabels:{display:true, color:'#fff', font:{weight:'700',size:11}, formatter:fmtRotulo} } }
+        : { maintainAspectRatio: false, plugins:{legend:{display:false},
+              datalabels:{display:true, anchor:'end', align:'top', color:'var(--escuro-pc)', font:{weight:'700',size:11}, formatter:fmtRotulo} },
+            scales:{ y:{ ticks:{ callback:fmtRotulo } }, x:{ ticks:{ autoSkip:true, maxRotation:60, minRotation:0 } } } },
     });
     CHARTS_ATIVOS.push(chart);
   });
