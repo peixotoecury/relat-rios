@@ -55,7 +55,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .dash-card-head{background:var(--surface2);border-bottom:1px solid var(--border2);padding:15px 22px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--escuro-pc);display:flex;align-items:center;justify-content:space-between;}
 .dash-card-body{padding:18px 22px;}
 
-.grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;}
+.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;}
 @media(max-width:900px){.grid-2{grid-template-columns:1fr;}}
 
 table.rel-table{width:100%;border-collapse:collapse;}
@@ -182,16 +182,7 @@ html.gate-open #pwGate{display:none;}
 
   <div id="page-geral" class="page active">
     <div class="kpi-grid" id="kpiGrid"></div>
-    <div class="grid-2" id="graficosGrid">
-      <div class="dash-card" id="cardGrafico1">
-        <div class="dash-card-head"><span id="tituloGrafico1">Carteira</span></div>
-        <div class="dash-card-body" style="height:280px;"><canvas id="chartFase"></canvas></div>
-      </div>
-      <div class="dash-card" id="cardGrafico2">
-        <div class="dash-card-head"><span id="tituloGrafico2">Carteira</span></div>
-        <div class="dash-card-body" style="height:280px;"><canvas id="chartObjeto"></canvas></div>
-      </div>
-    </div>
+    <div class="grid-2" id="graficosGrid"></div>
 
     <div class="dash-card" id="cardComparativo">
       <div class="dash-card-head"><span>Comparação com o Mês Anterior <span id="labelComparativo"></span></span></div>
@@ -441,6 +432,13 @@ html.gate-open #pwGate{display:none;}
             <input type="text" id="cfgValoresEncerrado" class="form-input" placeholder="Valores que indicam encerrado, separados por vírgula (ex: Closed, Encerrado)" style="margin-bottom:8px;">
             <input type="text" id="cfgValoresNovo" class="form-input" placeholder="Valores que indicam novo, separados por vírgula (opcional, ex: Ativo - Novo)">
           </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Gráficos da Visão Geral (quantos precisar)</div>
+          <div id="cfgGraficos"></div>
+          <button type="button" class="btn-outline" onclick="cfgAdicionarGrafico()">+ Adicionar gráfico</button>
+          <div class="hint">"Campo" agrupa por categoria (ex: Fase, Prognóstico, UF, Departamento). "Valor" é opcional — se vazio, conta processos; se preenchido, soma esse campo numérico (ex: Total Provável).</div>
         </div>
 
         <div class="form-group">
@@ -775,39 +773,47 @@ async function renderComparativoMes(){
 }
 let CHART_COMPARATIVO = null;
 
-// ── Gráficos (opcionais, config-driven) ─────────────────────────────────
-let CHART_FASE=null, CHART_OBJETO=null;
+// ── Gráficos (lista configurável, tantos quanto o cliente precisar) ─────
+const CORES_GRAFICO = ['#00A9E0','#C0392B','#B85C00','#117A65','#7E98AA','#8E44AD','#2C3E50','#D4AC0D'];
+let CHARTS_ATIVOS = [];
 function renderGraficos(){
-  renderUmGrafico('grafico1', 'cardGrafico1', 'tituloGrafico1', 'chartFase', 'bar', () => CHART_FASE, c => CHART_FASE = c, ['#00A9E0']);
-  renderUmGrafico('grafico2', 'cardGrafico2', 'tituloGrafico2', 'chartObjeto', 'doughnut', () => CHART_OBJETO, c => CHART_OBJETO = c, ['#C0392B','#B85C00','#117A65','#7E98AA','#00A9E0']);
-}
-function renderUmGrafico(chaveConfig, idCard, idTitulo, idCanvas, tipo, getChart, setChart, cores){
-  const cfg = CONFIG_ATIVA && CONFIG_ATIVA[chaveConfig];
-  const card = document.getElementById(idCard);
-  if(!cfg || !cfg.campo){ card.style.display = 'none'; return; }
-  card.style.display = '';
-  document.getElementById(idTitulo).textContent = cfg.label || 'Carteira';
-  const porGrupo = {};
-  SNAPSHOT.filter(r => r._status !== 'encerrado').forEach(r => {
-    const g = r[cfg.campo] || 'Outros/Não classificado';
-    const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
-    porGrupo[g] = (porGrupo[g]||0) + v;
+  CHARTS_ATIVOS.forEach(c => c.destroy());
+  CHARTS_ATIVOS = [];
+  const grid = document.getElementById('graficosGrid');
+  // Compatibilidade: configs antigas usavam grafico1/grafico2 fixos —
+  // migra pra lista na hora de renderizar, sem precisar reconfigurar.
+  const lista = (CONFIG_ATIVA && CONFIG_ATIVA.graficos && CONFIG_ATIVA.graficos.length)
+    ? CONFIG_ATIVA.graficos
+    : [CONFIG_ATIVA && CONFIG_ATIVA.grafico1, CONFIG_ATIVA && CONFIG_ATIVA.grafico2].filter(g => g && g.campo);
+  if(!lista.length){ grid.innerHTML = ''; return; }
+  grid.innerHTML = lista.map((g,i) => `
+    <div class="dash-card">
+      <div class="dash-card-head"><span>${esc(g.label || 'Carteira')}</span></div>
+      <div class="dash-card-body" style="height:280px;"><canvas id="chartDin${i}"></canvas></div>
+    </div>`).join('');
+  lista.forEach((cfg,i) => {
+    const porGrupo = {};
+    SNAPSHOT.filter(r => r._status !== 'encerrado').forEach(r => {
+      const g = r[cfg.campo] || 'Outros/Não classificado';
+      const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
+      porGrupo[g] = (porGrupo[g]||0) + v;
+    });
+    // Maior valor primeiro — deixa o gráfico mais legível e evita barra/fatia
+    // minúscula ao lado de uma gigante em ordem aleatória.
+    const entradas = Object.entries(porGrupo).sort((a,b) => b[1]-a[1]);
+    const labels = entradas.map(e => e[0]);
+    const vals = entradas.map(e => e[1]);
+    const tipo = cfg.tipo || 'bar';
+    const chart = new Chart(document.getElementById(`chartDin${i}`), {
+      type: tipo,
+      data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? CORES_GRAFICO : CORES_GRAFICO[i % CORES_GRAFICO.length], maxBarThickness: 56 }] },
+      options: tipo==='doughnut'
+        ? { maintainAspectRatio: false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:14}}} }
+        : { maintainAspectRatio: false, plugins:{legend:{display:false}},
+            scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:0 } } } },
+    });
+    CHARTS_ATIVOS.push(chart);
   });
-  // Maior valor primeiro — deixa o gráfico mais legível e evita barra/fatia
-  // minúscula ao lado de uma gigante em ordem aleatória.
-  const entradas = Object.entries(porGrupo).sort((a,b) => b[1]-a[1]);
-  const labels = entradas.map(e => e[0]);
-  const vals = entradas.map(e => e[1]);
-  const atual = getChart();
-  if(atual) atual.destroy();
-  setChart(new Chart(document.getElementById(idCanvas), {
-    type: tipo,
-    data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? cores : cores[0], maxBarThickness: 56 }] },
-    options: tipo==='doughnut'
-      ? { maintainAspectRatio: false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:14}}} }
-      : { maintainAspectRatio: false, plugins:{legend:{display:false}},
-          scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:0 } } } },
-  }));
 }
 
 // ── Ponte de Accrual (opcional, config-driven) ──────────────────────────
@@ -1486,7 +1492,9 @@ async function uploadContingencia(){
       const valoresNovo = (encerradoCfg.valores_novo || []).map(v => String(v).toLowerCase());
       Object.entries(linhasDoMes).forEach(([processo, linha]) => {
         const v = String(linha[encerradoCfg.campo] ?? '').toLowerCase();
-        statusPorProcesso[processo] = valoresEncerrado.includes(v) ? 'encerrado' : valoresNovo.includes(v) ? 'novo' : 'ativo';
+        // Match por trecho, não exato — valores reais costumam vir compostos
+        // (ex: "Ativo - Novo Campinas", "Encerrado - Mês Campinas").
+        statusPorProcesso[processo] = valoresEncerrado.some(x => v.includes(x)) ? 'encerrado' : valoresNovo.some(x => v.includes(x)) ? 'novo' : 'ativo';
       });
     } else {
       const { data: mesesAnt } = await sb.from('rel_processos_snapshot').select('mes_referencia')
@@ -1604,6 +1612,31 @@ async function carregarListaClientesConfig(){
   `).join('') || '<tr><td colspan="3" class="empty-state">Nenhum cliente ainda.</td></tr>';
 }
 
+function cfgAdicionarGrafico(g){
+  const alvo = document.getElementById('cfgGraficos');
+  const v = g || {};
+  const item = document.createElement('div');
+  item.className = 'grafico-item';
+  item.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
+  item.innerHTML = `
+    <input type="text" class="cfg-graf-campo form-input" placeholder="Campo (ex: Fase Mês Atual)" value="${esc(v.campo||'')}">
+    <input type="text" class="cfg-graf-valor form-input" placeholder="Valor a somar (opcional)" value="${esc(v.valor||'')}">
+    <input type="text" class="cfg-graf-label form-input" placeholder="Título do gráfico" value="${esc(v.label||'')}">
+    <select class="cfg-graf-tipo form-input" style="max-width:110px;">
+      <option value="bar"${v.tipo!=='doughnut'?' selected':''}>Barra</option>
+      <option value="doughnut"${v.tipo==='doughnut'?' selected':''}>Rosca</option>
+    </select>
+    <button type="button" class="icon-btn" onclick="this.closest('.grafico-item').remove()">✕</button>`;
+  alvo.appendChild(item);
+}
+function cfgColetarGraficos(){
+  return [...document.querySelectorAll('#cfgGraficos .grafico-item')].map(item => ({
+    campo: item.querySelector('.cfg-graf-campo').value.trim(),
+    valor: item.querySelector('.cfg-graf-valor').value.trim() || null,
+    label: item.querySelector('.cfg-graf-label').value.trim(),
+    tipo: item.querySelector('.cfg-graf-tipo').value,
+  })).filter(g => g.campo);
+}
 function cfgAdicionarColuna(idLista, valores){
   const alvo = document.getElementById(idLista);
   const ehPagamentos = idLista === 'cfgColunasPagamentos';
@@ -1665,6 +1698,7 @@ async function salvarConfigCliente(){
     campo_base_correcao: document.getElementById('cfgCampoBaseCorrecao').value.trim() || null,
     pagamentos_campo_base_correcao: document.getElementById('cfgCampoBasePagamentos').value.split(',').map(s=>s.trim()).filter(Boolean),
     movimentacoes_campos: document.getElementById('cfgCamposMovimentacoes').value.split(',').map(s=>s.trim()).filter(Boolean),
+    graficos: cfgColetarGraficos(),
   };
 
   try{
