@@ -192,6 +192,14 @@ html.gate-open #pwGate{display:none;}
         <div class="dash-card-body"><canvas id="chartObjeto" height="220"></canvas></div>
       </div>
     </div>
+
+    <div class="dash-card" id="cardComparativo">
+      <div class="dash-card-head"><span>Comparação com o Mês Anterior <span id="labelComparativo"></span></span></div>
+      <div class="table-wrap"><table class="rel-table">
+        <thead><tr><th>Campo</th><th>Mês Anterior</th><th>Mês Atual</th><th>Diferença</th></tr></thead>
+        <tbody id="tbodyComparativo"></tbody>
+      </table></div>
+    </div>
   </div>
 
   <div id="page-ponte" class="page">
@@ -584,6 +592,7 @@ function renderTudo(){
   renderTransicao();
   renderNovosEncerrados();
   renderProcessos();
+  renderComparativoMes();
 }
 
 function colunasProc(){ return (CONFIG_ATIVA && CONFIG_ATIVA.colunas_processos) || []; }
@@ -601,14 +610,61 @@ function renderKpis(){
     { label:'Novos no Mês', val: String(SNAPSHOT.filter(r=>r._status==='novo').length) },
     { label:'Encerrados no Mês', val: String(SNAPSHOT.filter(r=>r._status==='encerrado').length) },
   ];
-  colunasProc().filter(c => c.tipo === 'numero').forEach(c => {
-    const ativos = SNAPSHOT.filter(r => r._status !== 'encerrado');
+  const ativos = SNAPSHOT.filter(r => r._status !== 'encerrado');
+  const numCols = colunasProc().filter(c => c.tipo === 'numero');
+  numCols.forEach(c => {
     const soma = ativos.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
     cards.push({ label: c.label, val: fmtMi(soma), sub: ativos.length + ' processos (exclui encerrados)' });
   });
+
+  // Maior/menor caso — usa o campo-base de correção do cliente como valor
+  // principal; se não tiver configurado, usa a 1ª coluna numérica.
+  const chave = campoChaveProc();
+  const campoPrincipal = CONFIG_ATIVA.campo_base_correcao || (numCols[0] && numCols[0].origem);
+  if(campoPrincipal && ativos.length){
+    const comValor = ativos.filter(r => r[campoPrincipal] != null && !isNaN(Number(r[campoPrincipal])));
+    if(comValor.length){
+      const maior = comValor.reduce((a,b) => Number(b[campoPrincipal]) > Number(a[campoPrincipal]) ? b : a);
+      const menor = comValor.reduce((a,b) => Number(b[campoPrincipal]) < Number(a[campoPrincipal]) ? b : a);
+      cards.push({ label: 'Maior Caso', val: fmtMoney(maior[campoPrincipal]), sub: `${maior[chave]||'—'} — ${maior.reclamante_autor||maior.Reclamante||maior.reclamante||''}`.slice(0,60) });
+      cards.push({ label: 'Menor Caso', val: fmtMoney(menor[campoPrincipal]), sub: `${menor[chave]||'—'} — ${menor.reclamante_autor||menor.Reclamante||menor.reclamante||''}`.slice(0,60) });
+    }
+  }
+
   document.getElementById('kpiGrid').innerHTML = cards.map(c =>
     `<div class="kpi-card"><div class="kpi-label">${esc(c.label)}</div><div class="kpi-num">${c.val}</div>${c.sub?`<div class="kpi-sub">${esc(c.sub)}</div>`:''}</div>`
   ).join('');
+}
+
+// ── Comparação com o mês anterior, por campo numérico ────────────────────
+async function renderComparativoMes(){
+  const card = document.getElementById('cardComparativo');
+  const tbody = document.getElementById('tbodyComparativo');
+  if(MENSAGEM_VAZIO || !MES_ATUAL){ card.style.display = 'none'; return; }
+  const numCols = colunasProc().filter(c => c.tipo === 'numero');
+  if(!numCols.length){ card.style.display = 'none'; return; }
+
+  const { data: mesesAnt } = await sb.from('rel_processos_snapshot').select('mes_referencia')
+    .eq('cliente_id', CLIENTE_ATIVO).lt('mes_referencia', MES_ATUAL).order('mes_referencia',{ascending:false}).limit(1);
+  if(!mesesAnt || !mesesAnt.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const anteriores = await buscarTudo('rel_processos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: mesesAnt[0].mes_referencia});
+  const ativosAnt = anteriores.filter(r => r.status_calculado !== 'encerrado');
+  const ativosAtual = SNAPSHOT.filter(r => r._status !== 'encerrado');
+
+  document.getElementById('labelComparativo').textContent = `${fmtMes(mesesAnt[0].mes_referencia)} → ${fmtMes(MES_ATUAL)}`;
+  tbody.innerHTML = numCols.map(c => {
+    const somaAnt = ativosAnt.reduce((s,r) => s + (Number(r.dados[c.origem])||0), 0);
+    const somaAtual = ativosAtual.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
+    const delta = somaAtual - somaAnt;
+    return `<tr>
+      <td>${esc(c.label)}</td>
+      <td class="mono">${fmtMoney(somaAnt)}</td>
+      <td class="mono">${fmtMoney(somaAtual)}</td>
+      <td class="mono ${delta>=0?'num-pos':'num-neg'}">${delta>=0?'+':''}${fmtMoney(delta)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Gráficos (opcionais, config-driven) ─────────────────────────────────
