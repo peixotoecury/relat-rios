@@ -185,16 +185,17 @@ html.gate-open #pwGate{display:none;}
     <div class="grid-2" id="graficosGrid">
       <div class="dash-card" id="cardGrafico1">
         <div class="dash-card-head"><span id="tituloGrafico1">Carteira</span></div>
-        <div class="dash-card-body"><canvas id="chartFase" height="220"></canvas></div>
+        <div class="dash-card-body" style="height:280px;"><canvas id="chartFase"></canvas></div>
       </div>
       <div class="dash-card" id="cardGrafico2">
         <div class="dash-card-head"><span id="tituloGrafico2">Carteira</span></div>
-        <div class="dash-card-body"><canvas id="chartObjeto" height="220"></canvas></div>
+        <div class="dash-card-body" style="height:280px;"><canvas id="chartObjeto"></canvas></div>
       </div>
     </div>
 
     <div class="dash-card" id="cardComparativo">
       <div class="dash-card-head"><span>Comparação com o Mês Anterior <span id="labelComparativo"></span></span></div>
+      <div class="dash-card-body" style="height:260px;"><canvas id="chartComparativo"></canvas></div>
       <div class="table-wrap"><table class="rel-table">
         <thead><tr><th>Campo</th><th>Mês Anterior</th><th>Mês Atual</th><th>Diferença</th></tr></thead>
         <tbody id="tbodyComparativo"></tbody>
@@ -282,9 +283,12 @@ html.gate-open #pwGate{display:none;}
 
   <div id="page-depositos" class="page">
     <div class="dash-card">
-      <div class="dash-card-head"><span>Depósitos e Garantias <span id="contagemDepositos"></span></span></div>
+      <div class="dash-card-head">
+        <span>Depósitos e Garantias <span id="contagemDepositos"></span></span>
+        <button class="btn-outline" onclick="mudarAba('atualizar')">⬆️ Atualizar Depósitos e Garantias</button>
+      </div>
       <div class="dash-card-body" style="padding-top:0;">
-        <div class="hint" style="margin:14px 0;">Colunas de pagamento marcadas como "Depósito/Garantia" na config do cliente (aba Configurar Cliente). Se nenhuma coluna estiver marcada, mostra as mesmas colunas da aba Pagamentos.</div>
+        <div class="hint" style="margin:14px 0;">Pra atualizar estes dados, suba a planilha no bloco <strong>"2. Base de Pagamentos"</strong> da aba Atualizar Mês (botão acima leva direto pra lá) — os Depósitos e Garantias são as colunas dessa planilha marcadas como tal na config do cliente (aba Configurar Cliente). Se nenhuma coluna estiver marcada, mostra as mesmas colunas da aba Pagamentos.</div>
       </div>
       <div class="table-wrap"><table class="rel-table" id="tabelaDepositos">
         <thead><tr id="theadDepositos"></tr></thead>
@@ -428,6 +432,12 @@ html.gate-open #pwGate{display:none;}
         <div class="form-group">
           <label class="form-label">Campo-base (Processos) pra correção manual do índice (opcional)</label>
           <input type="text" id="cfgCampoBaseCorrecao" class="form-input" placeholder="Ex: accrual">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Campo de risco (Possível/Provável/Remoto), pro Maior/Menor Caso (opcional)</label>
+          <input type="text" id="cfgCampoRisco" class="form-input" placeholder="Ex: Risco Mês Atual">
+          <div class="hint">Se vazio, tenta descobrir sozinho olhando qual coluna "Possível/Provável/Remoto" está preenchida naquela linha.</div>
         </div>
 
         <div class="form-group">
@@ -595,6 +605,25 @@ function renderTudo(){
   renderComparativoMes();
 }
 
+// Convenção de cor por risco: Provável = vermelho (maior risco), Possível =
+// laranja, Remoto = verde (menor risco).
+function spanRisco(risco){
+  const r = risco.toLowerCase();
+  let cor = 'var(--muted)', bg = 'var(--surface2)';
+  if(r.includes('prov')){ cor = 'var(--red)'; bg = 'var(--red-lt)'; }
+  else if(r.includes('poss')){ cor = 'var(--orange)'; bg = 'var(--orange-lt)'; }
+  else if(r.includes('remot')){ cor = 'var(--green)'; bg = 'var(--green-lt)'; }
+  return `<span class="badge" style="background:${bg};color:${cor};border-color:${cor}40;">${esc(risco)}</span>`;
+}
+function riscoBadge(risco){
+  if(!risco) return '';
+  return `<div class="kpi-sub">Risco: ${spanRisco(risco)}</div>`;
+}
+function celulaValor(c, v){
+  if(c.tipo === 'numero') return `<td class="mono">${fmtMoney(v)}</td>`;
+  if(/risco/i.test(c.label) && v) return `<td>${spanRisco(String(v))}</td>`;
+  return `<td>${esc(v ?? '—')}</td>`;
+}
 function colunasProc(){ return (CONFIG_ATIVA && CONFIG_ATIVA.colunas_processos) || []; }
 function colunasPag(){ return (CONFIG_ATIVA && CONFIG_ATIVA.colunas_pagamentos) || []; }
 function campoChaveProc(){ const c = colunasProc().find(c=>c.chave); return c ? c.origem : 'processo'; }
@@ -612,7 +641,9 @@ function renderKpis(){
   ];
   const ativos = SNAPSHOT.filter(r => r._status !== 'encerrado');
   const numCols = colunasProc().filter(c => c.tipo === 'numero');
-  numCols.forEach(c => {
+  // Colunas "Δ" (diferença) ficam fora dos cards de total — já aparecem
+  // (comparadas de verdade) na tabela "Comparação com o Mês Anterior".
+  numCols.filter(c => !/^Δ/.test(c.label)).forEach(c => {
     const soma = ativos.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
     cards.push({ label: c.label, val: fmtMi(soma), sub: ativos.length + ' processos (exclui encerrados)' });
   });
@@ -621,18 +652,38 @@ function renderKpis(){
   // principal; se não tiver configurado, usa a 1ª coluna numérica.
   const chave = campoChaveProc();
   const campoPrincipal = CONFIG_ATIVA.campo_base_correcao || (numCols[0] && numCols[0].origem);
+
+  function inferirRisco(row){
+    if(CONFIG_ATIVA.campo_risco && row[CONFIG_ATIVA.campo_risco]) return row[CONFIG_ATIVA.campo_risco];
+    // Sem campo de risco configurado: procura entre as colunas numéricas
+    // rotuladas Possível/Provável/Remoto qual delas tem valor pra essa linha
+    // (padrão eLaw: só 1 das 3 fica preenchida por processo).
+    const candidatos = numCols.filter(c => /poss[íi]vel|prov[áa]vel|remot[oa]/i.test(c.label));
+    for(const c of candidatos){
+      if(Number(row[c.origem]) > 0) return c.label.replace(/^Total\s*(Amount\s*[-–]\s*)?/i,'').trim();
+    }
+    return null;
+  }
+
   if(campoPrincipal && ativos.length){
     const comValor = ativos.filter(r => r[campoPrincipal] != null && !isNaN(Number(r[campoPrincipal])));
+    // Menor Caso ignora valor zero/negativo — um caso com R$0 não é
+    // informativo como "menor caso" (geralmente é dado incompleto/baixado).
+    const comValorPositivo = comValor.filter(r => Number(r[campoPrincipal]) > 0);
     if(comValor.length){
       const maior = comValor.reduce((a,b) => Number(b[campoPrincipal]) > Number(a[campoPrincipal]) ? b : a);
-      const menor = comValor.reduce((a,b) => Number(b[campoPrincipal]) < Number(a[campoPrincipal]) ? b : a);
-      cards.push({ label: 'Maior Caso', val: fmtMoney(maior[campoPrincipal]), sub: `${maior[chave]||'—'} — ${maior.reclamante_autor||maior.Reclamante||maior.reclamante||''}`.slice(0,60) });
-      cards.push({ label: 'Menor Caso', val: fmtMoney(menor[campoPrincipal]), sub: `${menor[chave]||'—'} — ${menor.reclamante_autor||menor.Reclamante||menor.reclamante||''}`.slice(0,60) });
+      const riscoMaior = inferirRisco(maior);
+      cards.push({ label: 'Maior Caso', val: fmtMoney(maior[campoPrincipal]), sub: `${maior[chave]||'—'} — ${maior.reclamante_autor||maior.Reclamante||maior.reclamante||''}`.slice(0,60), badge: riscoBadge(riscoMaior) });
+    }
+    if(comValorPositivo.length){
+      const menor = comValorPositivo.reduce((a,b) => Number(b[campoPrincipal]) < Number(a[campoPrincipal]) ? b : a);
+      const riscoMenor = inferirRisco(menor);
+      cards.push({ label: 'Menor Caso', val: fmtMoney(menor[campoPrincipal]), sub: `${menor[chave]||'—'} — ${menor.reclamante_autor||menor.Reclamante||menor.reclamante||''}`.slice(0,60), badge: riscoBadge(riscoMenor) });
     }
   }
 
   document.getElementById('kpiGrid').innerHTML = cards.map(c =>
-    `<div class="kpi-card"><div class="kpi-label">${esc(c.label)}</div><div class="kpi-num">${c.val}</div>${c.sub?`<div class="kpi-sub">${esc(c.sub)}</div>`:''}</div>`
+    `<div class="kpi-card"><div class="kpi-label">${esc(c.label)}</div><div class="kpi-num">${c.val}</div>${c.sub?`<div class="kpi-sub">${esc(c.sub)}</div>`:''}${c.badge||''}</div>`
   ).join('');
 }
 
@@ -654,18 +705,33 @@ async function renderComparativoMes(){
   const ativosAtual = SNAPSHOT.filter(r => r._status !== 'encerrado');
 
   document.getElementById('labelComparativo').textContent = `${fmtMes(mesesAnt[0].mes_referencia)} → ${fmtMes(MES_ATUAL)}`;
-  tbody.innerHTML = numCols.map(c => {
+  const linhas = numCols.map(c => {
     const somaAnt = ativosAnt.reduce((s,r) => s + (Number(r.dados[c.origem])||0), 0);
     const somaAtual = ativosAtual.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
-    const delta = somaAtual - somaAnt;
-    return `<tr>
-      <td>${esc(c.label)}</td>
-      <td class="mono">${fmtMoney(somaAnt)}</td>
-      <td class="mono">${fmtMoney(somaAtual)}</td>
-      <td class="mono ${delta>=0?'num-pos':'num-neg'}">${delta>=0?'+':''}${fmtMoney(delta)}</td>
-    </tr>`;
-  }).join('');
+    return { label: c.label, somaAnt, somaAtual, delta: somaAtual - somaAnt };
+  });
+  tbody.innerHTML = linhas.map(l => `
+    <tr>
+      <td>${esc(l.label)}</td>
+      <td class="mono">${fmtMoney(l.somaAnt)}</td>
+      <td class="mono">${fmtMoney(l.somaAtual)}</td>
+      <td class="mono ${l.delta>=0?'num-pos':'num-neg'}">${l.delta>=0?'+':''}${fmtMoney(l.delta)}</td>
+    </tr>`).join('');
+
+  if(CHART_COMPARATIVO) CHART_COMPARATIVO.destroy();
+  CHART_COMPARATIVO = new Chart(document.getElementById('chartComparativo'), {
+    type: 'bar',
+    data: {
+      labels: linhas.map(l => l.label),
+      datasets: [
+        { label: fmtMes(mesesAnt[0].mes_referencia), data: linhas.map(l => l.somaAnt), backgroundColor: '#7E98AA' },
+        { label: fmtMes(MES_ATUAL), data: linhas.map(l => l.somaAtual), backgroundColor: '#00A9E0' },
+      ],
+    },
+    options: { plugins:{legend:{position:'bottom'}}, scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } } } },
+  });
 }
+let CHART_COMPARATIVO = null;
 
 // ── Gráficos (opcionais, config-driven) ─────────────────────────────────
 let CHART_FASE=null, CHART_OBJETO=null;
@@ -681,20 +747,24 @@ function renderUmGrafico(chaveConfig, idCard, idTitulo, idCanvas, tipo, getChart
   document.getElementById(idTitulo).textContent = cfg.label || 'Carteira';
   const porGrupo = {};
   SNAPSHOT.filter(r => r._status !== 'encerrado').forEach(r => {
-    const g = r[cfg.campo] || '—';
+    const g = r[cfg.campo] || 'Outros/Não classificado';
     const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
     porGrupo[g] = (porGrupo[g]||0) + v;
   });
-  const labels = Object.keys(porGrupo);
-  const vals = labels.map(l => porGrupo[l]);
+  // Maior valor primeiro — deixa o gráfico mais legível e evita barra/fatia
+  // minúscula ao lado de uma gigante em ordem aleatória.
+  const entradas = Object.entries(porGrupo).sort((a,b) => b[1]-a[1]);
+  const labels = entradas.map(e => e[0]);
+  const vals = entradas.map(e => e[1]);
   const atual = getChart();
   if(atual) atual.destroy();
   setChart(new Chart(document.getElementById(idCanvas), {
     type: tipo,
-    data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? cores : cores[0] }] },
+    data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? cores : cores[0], maxBarThickness: 56 }] },
     options: tipo==='doughnut'
-      ? { plugins:{legend:{position:'bottom'}} }
-      : { plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } } } },
+      ? { maintainAspectRatio: false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:14}}} }
+      : { maintainAspectRatio: false, plugins:{legend:{display:false}},
+          scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:0 } } } },
   }));
 }
 
@@ -772,7 +842,7 @@ function renderNovosEncerrados(){
 
   const linha = r => `<tr>${cols.map(c => {
     const v = r[c.origem];
-    return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+    return celulaValor(c, v);
   }).join('')}</tr>`;
 
   document.getElementById('tbodyNovos').innerHTML = novos.map(linha).join('') ||
@@ -821,7 +891,7 @@ function renderProcessos(){
     const garantia = campoGarantia && p[campoGarantia] > 0 ? `<td><span class="badge badge-garantia">${fmtMoney(p[campoGarantia])}</span></td>` : (campoGarantia ? '<td><span class="badge badge-none">—</span></td>' : '');
     const celulas = cols.map(c => {
       const v = r[c.origem];
-      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+      return celulaValor(c, v);
     }).join('');
     return `<tr><td>${badgeStatus(r._status)}</td>${celulas}${pago}${garantia}</tr>`;
   }).join('') || `<tr><td colspan="${1 + cols.length + (campoPago?1:0) + (campoGarantia?1:0)}" class="empty-state">Nenhum processo encontrado.</td></tr>`;
@@ -841,7 +911,7 @@ function renderPagamentos(){
   document.getElementById('tbodyPagamentos').innerHTML = linhas.map(([processo, dados]) => `
     <tr>${cols.map(c => {
       const v = dados[c.origem];
-      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+      return celulaValor(c, v);
     }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-state">Nenhum pagamento carregado pra este mês.</td></tr>`;
 }
 
@@ -850,6 +920,7 @@ function renderDepositosGarantias(){
   const todas = colunasPag();
   const marcadas = todas.filter(c => c.deposito_garantia);
   const cols = marcadas.length ? marcadas : todas;
+  const camposNumericos = cols.filter(c => c.tipo === 'numero');
   const linhas = Object.entries(PAGAMENTOS);
   document.getElementById('contagemDepositos').textContent = `(${linhas.length})`;
   if(!cols.length){
@@ -857,12 +928,69 @@ function renderDepositosGarantias(){
     document.getElementById('tbodyDepositos').innerHTML = '<tr><td class="empty-state">Este cliente não tem colunas de pagamento configuradas.</td></tr>';
     return;
   }
-  document.getElementById('theadDepositos').innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  document.getElementById('theadDepositos').innerHTML = '<th>Processo</th>' + cols.map(c => `<th>${esc(c.label)}</th>`).join('');
   document.getElementById('tbodyDepositos').innerHTML = linhas.map(([processo, dados]) => `
-    <tr>${cols.map(c => {
-      const v = dados[c.origem];
-      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
-    }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-state">Nenhum dado carregado pra este mês.</td></tr>`;
+    <tr>
+      <td class="mono">${esc(processo)}</td>
+      ${cols.map(c => {
+        const v = dados[c.origem];
+        if(c.tipo !== 'numero') return `<td>${esc(v ?? '—')}</td>`;
+        const idCel = `depcel_${processo.replace(/[^a-zA-Z0-9]/g,'_')}_${c.origem.replace(/[^a-zA-Z0-9]/g,'_')}`;
+        return `<td class="mono" id="${idCel}">
+          <span>${fmtMoney(v)}</span>
+          <button type="button" class="icon-btn" style="color:var(--azul-pc);font-size:12px;" title="Corrigir este valor" onclick="abrirCorrecaoDeposito('${esc(processo)}','${esc(c.origem)}','${idCel}')">✎</button>
+        </td>`;
+      }).join('')}
+    </tr>`).join('') || `<tr><td colspan="${cols.length+1}" class="empty-state">Nenhum dado carregado pra este mês.</td></tr>`;
+}
+
+function abrirCorrecaoDeposito(processo, campo, idCel){
+  const cel = document.getElementById(idCel);
+  const valorAtual = (PAGAMENTOS[processo]||{})[campo];
+  cel.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:4px;min-width:170px;">
+      <span>${fmtMoney(valorAtual)}</span>
+      <input type="date" class="form-input dep-desde" style="font-size:11px;padding:5px 8px;">
+      <div style="display:flex;gap:4px;">
+        <button type="button" class="btn-outline" style="font-size:11px;padding:5px 8px;" onclick="aplicarCorrecaoDeposito('${esc(processo)}','${esc(campo)}','${idCel}')">Corrigir por TR</button>
+        <button type="button" class="icon-btn" onclick="renderDepositosGarantias()">✕</button>
+      </div>
+      <span class="hint dep-status" style="margin:0;"></span>
+    </div>`;
+}
+
+async function aplicarCorrecaoDeposito(processo, campo, idCel){
+  const cel = document.getElementById(idCel);
+  const desde = cel.querySelector('.dep-desde').value;
+  const statusEl = cel.querySelector('.dep-status');
+  if(!desde){ statusEl.textContent = 'Escolha a data.'; return; }
+  if(!MES_ATUAL){ statusEl.textContent = 'Sem mês de referência carregado.'; return; }
+  statusEl.textContent = 'Calculando TR…';
+  try{
+    const serie = await buscarSerieTR(desde, MES_ATUAL);
+    const porMes = {};
+    serie.forEach(r => {
+      const chave = dataBrParaIso(r.data).slice(0,7);
+      (porMes[chave] = porMes[chave] || []).push(parseFloat(r.valor));
+    });
+    const mediasMensais = Object.values(porMes).map(vals => vals.reduce((a,b)=>a+b,0)/vals.length);
+    const somaIndice = mediasMensais.reduce((a,b)=>a+b,0) + mediasMensais.length; // TR + 1%/mês de juros
+    const dados = PAGAMENTOS[processo] || {};
+    const valorBase = Number(dados[campo]) || 0;
+    const valorNovo = Math.round(valorBase * (1 + somaIndice/100) * 100) / 100;
+    statusEl.textContent = 'Salvando…';
+    dados[campo] = valorNovo;
+    const { error } = await sb.from('rel_pagamentos_snapshot')
+      .update({ dados })
+      .eq('cliente_id', CLIENTE_ATIVO).eq('mes_referencia', MES_ATUAL).eq('processo', processo);
+    if(error) throw error;
+    PAGAMENTOS[processo] = dados;
+    renderDepositosGarantias();
+    renderPagamentos();
+    renderProcessos();
+  }catch(err){
+    statusEl.textContent = 'Erro: ' + err.message;
+  }
 }
 
 // ── Tabela TR (Bacen, série 226 — SGS) ───────────────────────────────────
@@ -967,6 +1095,31 @@ async function renderMovimentacoes(){
       }
     });
   });
+
+  // Pagamentos — compara com o mesmo mês anterior (garantia, depósito
+  // recursal, valores pagos etc.), não só os campos de Processos.
+  const colsPag = colunasPag();
+  if(colsPag.length){
+    const pagAnteriores = await buscarTudo('rel_pagamentos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: mesAnt});
+    const porProcessoPagAnt = {};
+    pagAnteriores.forEach(r => { porProcessoPagAnt[r.processo] = r.dados; });
+    Object.entries(PAGAMENTOS).forEach(([processo, dadosAtual]) => {
+      const dadosAnt = porProcessoPagAnt[processo];
+      colsPag.forEach(c => {
+        const vAnt = dadosAnt ? dadosAnt[c.origem] : undefined;
+        const vAtual = dadosAtual[c.origem];
+        const nAnt = (vAnt ?? '').toString();
+        const nAtual = (vAtual ?? '').toString();
+        if(nAnt !== nAtual && (vAtual != null && vAtual !== '' && vAtual !== 0)){
+          linhas.push({
+            processo, campo: 'Pagamento: ' + c.label,
+            de: c.tipo === 'numero' ? fmtMoney(vAnt) : (vAnt ?? '—'),
+            para: c.tipo === 'numero' ? fmtMoney(vAtual) : (vAtual ?? '—'),
+          });
+        }
+      });
+    });
+  }
 
   contagem.textContent = `(${linhas.length})`;
   tbody.innerHTML = linhas.map(l => `
