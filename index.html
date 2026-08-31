@@ -945,46 +945,75 @@ function renderDepositosGarantias(){
 }
 
 function abrirCorrecaoDeposito(processo, campo, idCel){
-  const cel = document.getElementById(idCel);
   const valorAtual = (PAGAMENTOS[processo]||{})[campo];
-  cel.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:4px;min-width:170px;">
-      <span>${fmtMoney(valorAtual)}</span>
-      <input type="date" class="form-input dep-desde" style="font-size:11px;padding:5px 8px;">
-      <div style="display:flex;gap:4px;">
-        <button type="button" class="btn-outline" style="font-size:11px;padding:5px 8px;" onclick="aplicarCorrecaoDeposito('${esc(processo)}','${esc(campo)}','${idCel}')">Corrigir por TR</button>
-        <button type="button" class="icon-btn" onclick="renderDepositosGarantias()">✕</button>
+  const hoje = new Date().toISOString().slice(0,10);
+  const overlay = document.createElement('div');
+  overlay.id = 'overlayCorrecaoDeposito';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(11,30,45,.5);z-index:500;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-pc);padding:26px;width:100%;max-width:380px;">
+      <div style="font-weight:800;color:var(--escuro-pc);font-size:15px;margin-bottom:4px;">Correção de valor pela Poupança</div>
+      <div class="hint" style="margin-bottom:16px;">Processo ${esc(processo)} — mesma lógica da <a href="https://www3.bcb.gov.br/CALCIDADAO/publico/exibirFormCorrecaoValores.do?aba=3&method=exibirFormCorrecaoValores" target="_blank" rel="noopener">Calculadora do Cidadão (Bacen)</a>.</div>
+
+      <div class="form-group">
+        <label class="form-label">Data inicial</label>
+        <input type="date" id="corrDataInicial" class="form-input">
       </div>
-      <span class="hint dep-status" style="margin:0;"></span>
+      <div class="form-group">
+        <label class="form-label">Data final</label>
+        <input type="date" id="corrDataFinal" class="form-input" value="${hoje}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Valor a ser corrigido</label>
+        <input type="number" step="0.01" id="corrValor" class="form-input" value="${valorAtual!=null?Number(valorAtual).toFixed(2):''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Regra de correção</label>
+        <div class="radio-row">
+          <label><input type="radio" name="corrRegra" value="nova" checked> Nova (depósitos a partir de 4/5/2012)</label>
+          <label><input type="radio" name="corrRegra" value="antiga"> Antiga (depósitos até 3/5/2012)</label>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button type="button" class="btn" onclick="aplicarCorrecaoDeposito('${esc(processo)}','${esc(campo)}')">Corrigir valor</button>
+        <button type="button" class="btn-outline" onclick="document.getElementById('overlayCorrecaoDeposito').remove()">Voltar</button>
+      </div>
+      <div class="hint" id="corrStatus" style="margin-top:10px;"></div>
     </div>`;
+  document.body.appendChild(overlay);
 }
 
-async function aplicarCorrecaoDeposito(processo, campo, idCel){
-  const cel = document.getElementById(idCel);
-  const desde = cel.querySelector('.dep-desde').value;
-  const statusEl = cel.querySelector('.dep-status');
-  if(!desde){ statusEl.textContent = 'Escolha a data.'; return; }
-  if(!MES_ATUAL){ statusEl.textContent = 'Sem mês de referência carregado.'; return; }
-  statusEl.textContent = 'Calculando TR…';
+async function aplicarCorrecaoDeposito(processo, campo){
+  const desde = document.getElementById('corrDataInicial').value;
+  const ate = document.getElementById('corrDataFinal').value;
+  const valorBase = parseFloat(document.getElementById('corrValor').value);
+  const regra = document.querySelector('input[name=corrRegra]:checked').value;
+  const statusEl = document.getElementById('corrStatus');
+  if(!desde || !ate){ statusEl.textContent = 'Preencha as duas datas.'; return; }
+  if(isNaN(valorBase)){ statusEl.textContent = 'Informe o valor a ser corrigido.'; return; }
+  statusEl.textContent = 'Calculando pela Poupança…';
   try{
-    const serie = await buscarSerieTR(desde, MES_ATUAL);
-    const porMes = {};
-    serie.forEach(r => {
-      const chave = dataBrParaIso(r.data).slice(0,7);
-      (porMes[chave] = porMes[chave] || []).push(parseFloat(r.valor));
-    });
-    const mediasMensais = Object.values(porMes).map(vals => vals.reduce((a,b)=>a+b,0)/vals.length);
-    const somaIndice = mediasMensais.reduce((a,b)=>a+b,0) + mediasMensais.length; // TR + 1%/mês de juros
-    const dados = PAGAMENTOS[processo] || {};
-    const valorBase = Number(dados[campo]) || 0;
+    let somaIndice;
+    if(regra === 'nova'){
+      // Poupança (série 195) já é a taxa completa (TR + juros da poupança)
+      // publicada pelo Bacen — não soma nada por cima.
+      somaIndice = mediaMensal(await buscarSeriePoupanca(desde, ate)).reduce((a,b)=>a+b,0);
+    } else {
+      // Regra antiga: TR + 0,5% ao mês fixo (sem o degrau do Selic da regra nova).
+      const mesesTR = mediaMensal(await buscarSerieTR(desde, ate));
+      somaIndice = mesesTR.reduce((a,b)=>a+b,0) + (mesesTR.length * 0.5);
+    }
     const valorNovo = Math.round(valorBase * (1 + somaIndice/100) * 100) / 100;
-    statusEl.textContent = 'Salvando…';
+    statusEl.textContent = `Corrigido: ${fmtMoney(valorBase)} → ${fmtMoney(valorNovo)} (índice ${somaIndice.toFixed(4)}%). Salvando…`;
+    const dados = PAGAMENTOS[processo] || {};
     dados[campo] = valorNovo;
     const { error } = await sb.from('rel_pagamentos_snapshot')
       .update({ dados })
       .eq('cliente_id', CLIENTE_ATIVO).eq('mes_referencia', MES_ATUAL).eq('processo', processo);
     if(error) throw error;
     PAGAMENTOS[processo] = dados;
+    document.getElementById('overlayCorrecaoDeposito').remove();
     renderDepositosGarantias();
     renderPagamentos();
     renderProcessos();
@@ -1003,11 +1032,28 @@ function isoParaBr(diso){
   return `${d}/${m}/${a}`;
 }
 let TR_CACHE = null;
-async function buscarSerieTR(dataInicioIso, dataFimIso){
-  const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.226/dados?formato=json&dataInicial=${isoParaBr(dataInicioIso)}&dataFinal=${isoParaBr(dataFimIso)}`;
+// Séries do SGS/Bacen: 226 = TR (pura), 195 = Poupança regra nova (já
+// inclui TR + juros da poupança num número só — não soma nada por cima).
+const SERIES_BACEN = { TR: 226, POUPANCA: 195 };
+async function buscarSerieBacen(codigo, dataInicioIso, dataFimIso){
+  const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${codigo}/dados?formato=json&dataInicial=${isoParaBr(dataInicioIso)}&dataFinal=${isoParaBr(dataFimIso)}`;
   const resp = await fetch(url);
   if(!resp.ok) throw new Error('Bacen respondeu ' + resp.status);
   return resp.json();
+}
+async function buscarSerieTR(dataInicioIso, dataFimIso){
+  return buscarSerieBacen(SERIES_BACEN.TR, dataInicioIso, dataFimIso);
+}
+async function buscarSeriePoupanca(dataInicioIso, dataFimIso){
+  return buscarSerieBacen(SERIES_BACEN.POUPANCA, dataInicioIso, dataFimIso);
+}
+function mediaMensal(serie){
+  const porMes = {};
+  serie.forEach(r => {
+    const chave = dataBrParaIso(r.data).slice(0,7);
+    (porMes[chave] = porMes[chave] || []).push(parseFloat(r.valor));
+  });
+  return Object.values(porMes).map(vals => vals.reduce((a,b)=>a+b,0)/vals.length);
 }
 async function carregarTabelaTR(){
   const tbody = document.getElementById('tbodyTR');
