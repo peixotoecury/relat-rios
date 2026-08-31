@@ -1054,7 +1054,7 @@ async function uploadPagamentos(){
     if(!chaveCol){ statusEl.textContent = 'A config de pagamentos não tem uma coluna marcada como chave.'; return; }
 
     const origemValor = document.getElementById('origemValor').value;
-    const campoBasePag = CONFIG_ATIVA.pagamentos_campo_base_correcao;
+    const camposBasePag = [].concat(CONFIG_ATIVA.pagamentos_campo_base_correcao || []);
     const indicesPag = coletarIndices(origemValor === 'manual');
     const somaIndicePag = indicesPag.reduce((s,i) => s + (i.tipo_indice === 'TR' ? i.valor + 1 : i.valor), 0);
 
@@ -1070,8 +1070,10 @@ async function uploadPagamentos(){
         else v = padronizarTexto(v);
         linha[c.origem] = v;
       });
-      if(origemValor === 'manual' && campoBasePag && linha[campoBasePag] != null && somaIndicePag){
-        linha[campoBasePag] = Math.round(linha[campoBasePag] * (1 + somaIndicePag/100) * 100) / 100;
+      if(origemValor === 'manual' && somaIndicePag){
+        camposBasePag.forEach(campo => {
+          if(linha[campo] != null) linha[campo] = Math.round(linha[campo] * (1 + somaIndicePag/100) * 100) / 100;
+        });
       }
       const processo = linha[chaveCol.origem];
       if(!processo) continue;
@@ -1166,7 +1168,7 @@ async function salvarConfigCliente(){
     colunas_pagamentos: colunasPagamentos,
     encerrado,
     campo_base_correcao: document.getElementById('cfgCampoBaseCorrecao').value.trim() || null,
-    pagamentos_campo_base_correcao: document.getElementById('cfgCampoBasePagamentos').value.trim() || null,
+    pagamentos_campo_base_correcao: document.getElementById('cfgCampoBasePagamentos').value.split(',').map(s=>s.trim()).filter(Boolean),
     movimentacoes_campos: document.getElementById('cfgCamposMovimentacoes').value.split(',').map(s=>s.trim()).filter(Boolean),
   };
 
