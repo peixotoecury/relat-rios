@@ -70,6 +70,7 @@ CLIENTES = [
                 "campo_delta2": {"origem": "Diferenças histórico - Mês anterior x Mês atual", "label": "Δ Histórico"},
             },
             "transicao": {"campo_de": "Previous Phase", "campo_para": "Current Phase"},
+            "movimentacoes_campos": ["Current Phase", "Total Amount - Probable"],
         },
     },
     {
@@ -129,6 +130,7 @@ CLIENTES = [
             "grafico1": {"campo": "Fase Mês Atual", "valor": "Provável", "label": "Carteira por Fase"},
             "grafico2": {"campo": "Risco Mês Atual", "valor": "Total do Mês", "label": "Carteira por Risco"},
             "transicao": {"campo_de": "Fase Mês Anterior", "campo_para": "Fase Mês Atual"},
+            "movimentacoes_campos": ["Fase Mês Atual", "Risco Mês Atual", "Provável"],
         },
     },
     {
@@ -157,6 +159,7 @@ CLIENTES = [
             "campo_base_correcao": "Valor da provisão [ELAW]",
             "grafico1": {"campo": "Fase processual", "valor": "Valor do risco [ELAW]", "label": "Carteira por Fase"},
             "grafico2": {"campo": "Risco do elaw (possível, provável, remoto)", "valor": "Valor da provisão [ELAW]", "label": "Carteira por Risco"},
+            "movimentacoes_campos": ["Fase processual", "Risco do elaw (possível, provável, remoto)", "Valor da provisão [ELAW]"],
         },
     },
     {
@@ -184,6 +187,7 @@ CLIENTES = [
             "campo_base_correcao": "Valor da provisão [ELAW]",
             "grafico1": {"campo": "Fase processual", "valor": "Valor do risco [ELAW]", "label": "Carteira por Fase"},
             "grafico2": {"campo": "Grupo de Objetos", "valor": "Valor da provisão [ELAW]", "label": "Carteira por Grupo de Objeto"},
+            "movimentacoes_campos": ["Fase processual", "Risco (possível, provável, remoto)", "Valor da provisão [ELAW]"],
         },
     },
     {
@@ -225,6 +229,7 @@ CLIENTES = [
             "grafico1": {"campo": "Fase Mês Atual", "valor": "Provável", "label": "Carteira por Fase"},
             "grafico2": {"campo": "Risco Mês Atual", "valor": "Total", "label": "Carteira por Risco"},
             "transicao": {"campo_de": "Fase Mês Anterior", "campo_para": "Fase Mês Atual"},
+            "movimentacoes_campos": ["Fase Mês Atual", "Risco Mês Atual", "Provável"],
         },
     },
     {

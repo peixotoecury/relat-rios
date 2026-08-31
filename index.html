@@ -87,6 +87,8 @@ table.rel-table tr:hover td{background:var(--surface2);}
 .col-row select{border:1px solid var(--border2);border-radius:var(--radius);padding:7px 8px;font-size:11px;font-family:var(--font);}
 .icon-btn{background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;font-weight:700;}
 .hint{font-size:11px;color:var(--muted2);margin-top:4px;}
+.hint a{color:var(--azul-pc);text-decoration:none;font-weight:600;}
+.hint a:hover{text-decoration:underline;}
 .radio-row{display:flex;gap:18px;margin-bottom:10px;}
 .radio-row label{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
 
@@ -317,7 +319,8 @@ html.gate-open #pwGate{display:none;}
           <div class="form-label" style="margin-bottom:10px;">Índice(s) de atualização do mês</div>
           <div id="listaIndices"></div>
           <button type="button" class="btn-outline" onclick="adicionarLinhaIndice()">+ Adicionar índice</button>
-          <div class="hint">Correção simples de um período: valor corrigido = valor-base × (1 + índice/100). Aplicado sobre o campo "<span id="campoBaseLabel">—</span>" definido na config do cliente.</div>
+          <div class="hint">Correção simples de um período: valor corrigido = valor-base × (1 + índice/100). Se o índice for TR, soma automaticamente +1 (TR + juros de mora de 1% ao mês) antes de aplicar. Vale pro relatório inteiro deste upload, não por processo. Aplicado sobre o campo configurado na aba Configurar Cliente (Processos: "<span id="campoBaseLabel">—</span>"; Pagamentos: campo de depósito/garantia, se configurado).</div>
+          <div class="hint">Onde consultar o TR do mês: <a href="https://www.bcb.gov.br/CALCIDADAO/publico/exibirFormCorrecaoValores.do?method=exibirFormCorrecaoValores" target="_blank" rel="noopener">Calculadora do Cidadão (Bacen) — aba TR ou Poupança</a> · <a href="https://www.debit.com.br/tabelas/tr-bacen" target="_blank" rel="noopener">Tabela TR — Debit.com.br</a></div>
         </div>
         <div id="blocoIndicesSoRegistro" style="display:none;margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);">
           <div class="form-label" style="margin-bottom:10px;">Índice(s) do mês (só registro, não altera valores)</div>
@@ -395,8 +398,20 @@ html.gate-open #pwGate{display:none;}
         </div>
 
         <div class="form-group">
-          <label class="form-label">Campo-base pra correção manual do índice (opcional)</label>
+          <label class="form-label">Campo-base (Processos) pra correção manual do índice (opcional)</label>
           <input type="text" id="cfgCampoBaseCorrecao" class="form-input" placeholder="Ex: accrual">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Campo-base (Pagamentos/Depósitos) pra correção manual do índice (opcional)</label>
+          <input type="text" id="cfgCampoBasePagamentos" class="form-input" placeholder="Ex: Garantia da Execução">
+          <div class="hint">Usado quando o upload de Pagamentos estiver com "Origem do valor: Manual" — aplica TR+juros (ou outro índice) sobre este campo, tipicamente depósito recursal/garantia da execução.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Campos a acompanhar na aba "Movimentações do Mês" (opcional)</label>
+          <input type="text" id="cfgCamposMovimentacoes" class="form-input" placeholder="Nomes de origem separados por vírgula, ex: Fase Mês Atual, Provável">
+          <div class="hint">Se vazio, compara todas as colunas do relatório de Processos (pode gerar ruído). Novos/Encerrados sempre aparecem, independente desse campo.</div>
         </div>
 
         <button class="btn" onclick="salvarConfigCliente()">Salvar cliente</button>
@@ -800,7 +815,14 @@ async function renderMovimentacoes(){
   const porProcessoAnt = {};
   anteriores.forEach(r => { porProcessoAnt[r.processo] = r; });
 
-  const cols = colunasProc();
+  // Se o cliente tiver movimentacoes_campos configurado, foca o diff só
+  // nesses campos (ex: Prognóstico, Valor Provável, Fase) em vez de
+  // comparar toda coluna configurada — evita ruído de campo que muda
+  // texto/formatação mas não é uma "movimentação" de verdade.
+  const focoConfig = CONFIG_ATIVA.movimentacoes_campos;
+  const cols = focoConfig && focoConfig.length
+    ? colunasProc().filter(c => focoConfig.includes(c.origem))
+    : colunasProc();
   const linhas = [];
   SNAPSHOT.forEach(atual => {
     const chave = atual[campoChaveProc()];
@@ -939,7 +961,9 @@ async function uploadContingencia(){
     const dados = rowsRaw.slice(headerRow).filter(r => r && r.some(v => v!==null && v!==undefined && v!==''));
     const campoBase = CONFIG_ATIVA.campo_base_correcao;
     const indices = coletarIndices(origemValor === 'manual');
-    const somaIndice = indices.reduce((s,i) => s + i.valor, 0);
+    // TR não é usado sozinho — a correção é TR + juros de mora de 1% ao
+    // mês; os outros índices (IPCA, SELIC etc.) entram pelo valor informado.
+    const somaIndice = indices.reduce((s,i) => s + (i.tipo_indice === 'TR' ? i.valor + 1 : i.valor), 0);
 
     const linhasDoMes = {}; // processo -> dados
     for(const r of dados){
@@ -1029,6 +1053,11 @@ async function uploadPagamentos(){
     const chaveCol = colunas.find(c => c.chave);
     if(!chaveCol){ statusEl.textContent = 'A config de pagamentos não tem uma coluna marcada como chave.'; return; }
 
+    const origemValor = document.getElementById('origemValor').value;
+    const campoBasePag = CONFIG_ATIVA.pagamentos_campo_base_correcao;
+    const indicesPag = coletarIndices(origemValor === 'manual');
+    const somaIndicePag = indicesPag.reduce((s,i) => s + (i.tipo_indice === 'TR' ? i.valor + 1 : i.valor), 0);
+
     const dados = rowsRaw.slice(headerRow).filter(r => r && r.some(v => v!==null && v!==undefined && v!==''));
     const porProcesso = {};
     for(const r of dados){
@@ -1041,6 +1070,9 @@ async function uploadPagamentos(){
         else v = padronizarTexto(v);
         linha[c.origem] = v;
       });
+      if(origemValor === 'manual' && campoBasePag && linha[campoBasePag] != null && somaIndicePag){
+        linha[campoBasePag] = Math.round(linha[campoBasePag] * (1 + somaIndicePag/100) * 100) / 100;
+      }
       const processo = linha[chaveCol.origem];
       if(!processo) continue;
       const chave = String(processo).trim();
@@ -1058,6 +1090,7 @@ async function uploadPagamentos(){
     }));
     statusEl.textContent = `${registros.length} processos lidos. Enviando…`;
     await upsertLotes('rel_pagamentos_snapshot', registros, statusEl, 'cliente_id,mes_referencia,processo');
+    if(origemValor === 'manual' && indicesPag.length) await gravarIndices(mesRef, indicesPag, 'manual');
     statusEl.textContent = `✅ ${registros.length} processos de pagamento atualizados pra ${fmtMes(mesRef)}.`;
     carregarDados();
   }catch(err){
@@ -1133,6 +1166,8 @@ async function salvarConfigCliente(){
     colunas_pagamentos: colunasPagamentos,
     encerrado,
     campo_base_correcao: document.getElementById('cfgCampoBaseCorrecao').value.trim() || null,
+    pagamentos_campo_base_correcao: document.getElementById('cfgCampoBasePagamentos').value.trim() || null,
+    movimentacoes_campos: document.getElementById('cfgCamposMovimentacoes').value.split(',').map(s=>s.trim()).filter(Boolean),
   };
 
   try{
