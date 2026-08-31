@@ -201,6 +201,17 @@ html.gate-open #pwGate{display:none;}
         <tbody id="tbodyComparativo"></tbody>
       </table></div>
     </div>
+
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Comentários e Insights do Mês</span></div>
+      <div class="dash-card-body">
+        <textarea id="comentariosTexto" class="form-input" rows="6" placeholder="Observações, destaques e análise do mês — vai junto na aba 'Comentários' do relatório exportado." style="resize:vertical;font-family:var(--font);"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+          <button class="btn" onclick="salvarComentarios()">Salvar Comentários</button>
+          <span class="hint" id="statusComentarios" style="margin:0;"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="page-ponte" class="page">
@@ -285,10 +296,13 @@ html.gate-open #pwGate{display:none;}
     <div class="dash-card">
       <div class="dash-card-head">
         <span>Depósitos e Garantias <span id="contagemDepositos"></span></span>
-        <button class="btn-outline" onclick="mudarAba('atualizar')">⬆️ Atualizar Depósitos e Garantias</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-outline" onclick="abrirNovoDeposito()">+ Novo Depósito/Garantia</button>
+          <button class="btn-outline" onclick="mudarAba('atualizar')">⬆️ Atualizar em Massa</button>
+        </div>
       </div>
       <div class="dash-card-body" style="padding-top:0;">
-        <div class="hint" style="margin:14px 0;">Pra atualizar estes dados, suba a planilha no bloco <strong>"2. Base de Pagamentos"</strong> da aba Atualizar Mês (botão acima leva direto pra lá) — os Depósitos e Garantias são as colunas dessa planilha marcadas como tal na config do cliente (aba Configurar Cliente). Se nenhuma coluna estiver marcada, mostra as mesmas colunas da aba Pagamentos.</div>
+        <div class="hint" style="margin:14px 0;">Só aparece aqui quem já tem alguma linha de pagamento lançada. Pra atualizar vários de uma vez, suba a planilha no bloco <strong>"2. Base de Pagamentos"</strong> da aba Atualizar Mês. Pra lançar um depósito/garantia novo pra um processo que ainda não tem nada aqui, use "+ Novo Depósito/Garantia" acima.</div>
       </div>
       <div class="table-wrap"><table class="rel-table" id="tabelaDepositos">
         <thead><tr id="theadDepositos"></tr></thead>
@@ -603,6 +617,34 @@ function renderTudo(){
   renderNovosEncerrados();
   renderProcessos();
   renderComparativoMes();
+  carregarComentarios();
+}
+
+async function carregarComentarios(){
+  const el = document.getElementById('comentariosTexto');
+  const statusEl = document.getElementById('statusComentarios');
+  el.value = '';
+  statusEl.textContent = '';
+  if(!MES_ATUAL) return;
+  const { data, error } = await sb.from('rel_comentarios_mensais').select('texto')
+    .eq('cliente_id', CLIENTE_ATIVO).eq('mes_referencia', MES_ATUAL).limit(1);
+  if(error){
+    // tabela ainda não existe (SQL não rodado) — não trava o resto da tela.
+    statusEl.textContent = 'Comentários indisponíveis (rode add_comentarios.sql no Supabase).';
+    return;
+  }
+  if(data && data.length) el.value = data[0].texto || '';
+}
+
+async function salvarComentarios(){
+  const statusEl = document.getElementById('statusComentarios');
+  if(!MES_ATUAL){ statusEl.textContent = 'Sem mês de referência carregado.'; return; }
+  const texto = document.getElementById('comentariosTexto').value;
+  statusEl.textContent = 'Salvando…';
+  const { error } = await sb.from('rel_comentarios_mensais')
+    .upsert({ cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL, texto, atualizado_em: new Date().toISOString() },
+      { onConflict: 'cliente_id,mes_referencia' });
+  statusEl.textContent = error ? ('Erro: ' + error.message) : '✅ Salvo.';
 }
 
 // Convenção de cor por risco: Provável = vermelho (maior risco), Possível =
@@ -942,6 +984,105 @@ function renderDepositosGarantias(){
         </td>`;
       }).join('')}
     </tr>`).join('') || `<tr><td colspan="${cols.length+1}" class="empty-state">Nenhum dado carregado pra este mês.</td></tr>`;
+}
+
+function abrirNovoDeposito(){
+  const todas = colunasPag();
+  const camposNumericos = todas.filter(c => c.tipo === 'numero');
+  if(!camposNumericos.length){ alert('Este cliente não tem colunas de pagamento numéricas configuradas.'); return; }
+  const chaveProc = campoChaveProc();
+  const overlay = document.createElement('div');
+  overlay.id = 'overlayCorrecaoDeposito';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(11,30,45,.5);z-index:500;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-pc);padding:26px;width:100%;max-width:380px;">
+      <div style="font-weight:800;color:var(--escuro-pc);font-size:15px;margin-bottom:16px;">Lançar novo Depósito/Garantia</div>
+
+      <div class="form-group">
+        <label class="form-label">Processo</label>
+        <input type="text" id="novoDepProcesso" class="form-input" list="listaProcessos" placeholder="Cole ou digite o número do processo">
+        <datalist id="listaProcessos">${SNAPSHOT.map(r => `<option value="${esc(r[chaveProc])}">`).join('')}</datalist>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Campo</label>
+        <select id="novoDepCampo" class="form-input">${camposNumericos.map(c => `<option value="${esc(c.origem)}">${esc(c.label)}</option>`).join('')}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Valor (já corrigido, ou o valor-base pra corrigir abaixo)</label>
+        <input type="number" step="0.01" id="corrValor" class="form-input" placeholder="0,00">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="novoDepAplicarCorrecao"> Aplicar correção pela Poupança neste valor
+        </label>
+      </div>
+      <div id="novoDepBlocoCorrecao" style="display:none;">
+        <div class="form-group">
+          <label class="form-label">Data inicial</label>
+          <input type="date" id="corrDataInicial" class="form-input">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data final</label>
+          <input type="date" id="corrDataFinal" class="form-input" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Regra de correção</label>
+          <div class="radio-row">
+            <label><input type="radio" name="corrRegra" value="nova" checked> Nova (a partir de 4/5/2012)</label>
+            <label><input type="radio" name="corrRegra" value="antiga"> Antiga (até 3/5/2012)</label>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button type="button" class="btn" onclick="salvarNovoDeposito()">Salvar</button>
+        <button type="button" class="btn-outline" onclick="document.getElementById('overlayCorrecaoDeposito').remove()">Cancelar</button>
+      </div>
+      <div class="hint" id="corrStatus" style="margin-top:10px;"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('novoDepAplicarCorrecao').addEventListener('change', function(){
+    document.getElementById('novoDepBlocoCorrecao').style.display = this.checked ? '' : 'none';
+  });
+}
+
+async function salvarNovoDeposito(){
+  const processo = document.getElementById('novoDepProcesso').value.trim();
+  const campo = document.getElementById('novoDepCampo').value;
+  const statusEl = document.getElementById('corrStatus');
+  if(!processo){ statusEl.textContent = 'Informe o processo.'; return; }
+  const valorBase = parseFloat(document.getElementById('corrValor').value);
+  if(isNaN(valorBase)){ statusEl.textContent = 'Informe o valor.'; return; }
+  const aplicarCorrecao = document.getElementById('novoDepAplicarCorrecao').checked;
+  try{
+    let valorFinal = valorBase;
+    if(aplicarCorrecao){
+      const desde = document.getElementById('corrDataInicial').value;
+      const ate = document.getElementById('corrDataFinal').value;
+      const regra = document.querySelector('input[name=corrRegra]:checked').value;
+      if(!desde || !ate){ statusEl.textContent = 'Preencha as duas datas da correção.'; return; }
+      statusEl.textContent = 'Calculando…';
+      let somaIndice;
+      if(regra === 'nova') somaIndice = mediaMensal(await buscarSeriePoupanca(desde, ate)).reduce((a,b)=>a+b,0);
+      else { const m = mediaMensal(await buscarSerieTR(desde, ate)); somaIndice = m.reduce((a,b)=>a+b,0) + (m.length*0.5); }
+      valorFinal = Math.round(valorBase * (1 + somaIndice/100) * 100) / 100;
+    }
+    statusEl.textContent = 'Salvando…';
+    const dados = PAGAMENTOS[processo] ? {...PAGAMENTOS[processo]} : {};
+    const chaveProc = campoChaveProc();
+    dados[chaveProc] = processo;
+    dados[campo] = valorFinal;
+    const { error } = await sb.from('rel_pagamentos_snapshot')
+      .upsert({ cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL, processo, dados }, { onConflict: 'cliente_id,mes_referencia,processo' });
+    if(error) throw error;
+    PAGAMENTOS[processo] = dados;
+    document.getElementById('overlayCorrecaoDeposito').remove();
+    renderDepositosGarantias();
+    renderPagamentos();
+    renderProcessos();
+  }catch(err){
+    statusEl.textContent = 'Erro: ' + err.message;
+  }
 }
 
 function abrirCorrecaoDeposito(processo, campo, idCel){
@@ -1550,11 +1691,21 @@ async function salvarConfigCliente(){
 }
 
 // ── Export ────────────────────────────────────────────────────────────
-function exportarRelatorio(){
+async function exportarRelatorio(){
   if(!SNAPSHOT.length){ alert('Ainda carregando os dados — espera um instante e tenta de novo.'); return; }
   const wb = XLSX.utils.book_new();
   const clienteNome = (CLIENTES.find(c=>c.id===CLIENTE_ATIVO)||{}).nome || 'Cliente';
   const cols = colunasProc();
+
+  // Aba principal — exatamente as mesmas colunas (nome e ordem) da planilha
+  // que foi subida, igual ao modelo original do cliente. É essa aba que
+  // deve ir pro cliente, sem precisar reformatar nada.
+  const modeloOriginal = SNAPSHOT.map(r => {
+    const linha = {};
+    cols.forEach(c => { linha[c.origem] = r[c.origem]; });
+    return linha;
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(modeloOriginal), 'Processos (modelo original)');
 
   const resumo = [
     { Indicador:'Cliente', Valor: clienteNome },
@@ -1568,7 +1719,7 @@ function exportarRelatorio(){
   const chave = campoChaveProc();
   const campoPago = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_pago;
   const campoGarantia = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_garantia;
-  const processos = SNAPSHOT.map(r => {
+  const processosDetalhado = SNAPSHOT.map(r => {
     const p = PAGAMENTOS[r[chave]] || {};
     const linha = { Status: r._status };
     cols.forEach(c => { linha[c.label] = r[c.origem]; });
@@ -1576,7 +1727,12 @@ function exportarRelatorio(){
     if(campoGarantia) linha['Garantia no Mês'] = p[campoGarantia] || 0;
     return linha;
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(processos), 'Processos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(processosDetalhado), 'Processos (detalhado)');
+
+  const textoComentarios = document.getElementById('comentariosTexto') ? document.getElementById('comentariosTexto').value : '';
+  if(textoComentarios.trim()){
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Comentários e Insights do Mês'],[textoComentarios]]), 'Comentários');
+  }
 
   XLSX.writeFile(wb, `Relatorio_${clienteNome.replace(/\s+/g,'_')}_${MES_ATUAL||''}.xlsx`);
 }
