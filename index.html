@@ -166,8 +166,11 @@ html.gate-open #pwGate{display:none;}
 
 <div class="tab-bar">
   <button class="tab-btn active" onclick="mudarAba('geral')">📊 Visão Geral</button>
-  <button class="tab-btn" onclick="mudarAba('ponte')">🌉 Movimentação do Mês</button>
-  <button class="tab-btn" onclick="mudarAba('processos')">📋 Processos e Pagamentos</button>
+  <button class="tab-btn" onclick="mudarAba('ponte')">🌉 Novos/Encerrados</button>
+  <button class="tab-btn" onclick="mudarAba('movimentacoes')">🔄 Movimentações do Mês</button>
+  <button class="tab-btn" onclick="mudarAba('processos')">📋 Processos</button>
+  <button class="tab-btn" onclick="mudarAba('pagamentos')">💰 Pagamentos</button>
+  <button class="tab-btn" onclick="mudarAba('depositos')">🏦 Depósitos e Garantias</button>
   <button class="tab-btn" onclick="mudarAba('atualizar')">⬆️ Atualizar Mês</button>
   <button class="tab-btn" onclick="mudarAba('config')">⚙️ Configurar Cliente</button>
 </div>
@@ -252,6 +255,42 @@ html.gate-open #pwGate{display:none;}
       <div class="table-wrap"><table class="rel-table" id="tabelaProcessos">
         <thead><tr id="theadProcessos"></tr></thead>
         <tbody id="tbodyProcessos"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="page-pagamentos" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Pagamentos do Mês <span id="contagemPagamentos"></span></span></div>
+      <div class="table-wrap"><table class="rel-table" id="tabelaPagamentos">
+        <thead><tr id="theadPagamentos"></tr></thead>
+        <tbody id="tbodyPagamentos"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="page-depositos" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Depósitos e Garantias <span id="contagemDepositos"></span></span></div>
+      <div class="dash-card-body" style="padding-top:0;">
+        <div class="hint" style="margin:14px 0;">Colunas de pagamento marcadas como "Depósito/Garantia" na config do cliente (aba Configurar Cliente). Se nenhuma coluna estiver marcada, mostra as mesmas colunas da aba Pagamentos.</div>
+      </div>
+      <div class="table-wrap"><table class="rel-table" id="tabelaDepositos">
+        <thead><tr id="theadDepositos"></tr></thead>
+        <tbody id="tbodyDepositos"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="page-movimentacoes" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>O que mudou desde o mês anterior <span id="contagemMovimentacoes"></span></span></div>
+      <div class="dash-card-body" style="padding-top:0;">
+        <div class="hint" style="margin:14px 0;" id="hintMovimentacoes"></div>
+      </div>
+      <div class="table-wrap"><table class="rel-table" id="tabelaMovimentacoes">
+        <thead><tr><th>Processo</th><th>Campo</th><th>Valor Anterior</th><th>Valor Atual</th></tr></thead>
+        <tbody id="tbodyMovimentacoes"></tbody>
       </table></div>
     </div>
   </div>
@@ -412,14 +451,18 @@ let SNAPSHOT = [];
 let PAGAMENTOS = {};
 let MES_ATUAL = null;
 let ABA_ATIVA = 'geral';
+let MENSAGEM_VAZIO = null;
 
 function mudarAba(aba){
   ABA_ATIVA = aba;
-  const ordem = ['geral','ponte','processos','atualizar','config'];
+  const ordem = ['geral','ponte','movimentacoes','processos','pagamentos','depositos','atualizar','config'];
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ordem[i] === aba));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-'+aba).classList.add('active');
   if(aba === 'config') carregarListaClientesConfig();
+  if(aba === 'movimentacoes') renderMovimentacoes();
+  if(aba === 'pagamentos') renderPagamentos();
+  if(aba === 'depositos') renderDepositosGarantias();
 }
 
 // ── Carregamento de clientes e config ───────────────────────────────────
@@ -468,17 +511,19 @@ async function buscarTudo(tabela, filtros){
 }
 
 async function carregarDados(){
+  MENSAGEM_VAZIO = null;
   if(!CONFIG_ATIVA){
-    document.getElementById('kpiGrid').innerHTML = '<div class="empty-state">Este cliente ainda não tem um modelo configurado — vá na aba "Configurar Cliente".</div>';
-    SNAPSHOT = []; PAGAMENTOS = {};
+    MENSAGEM_VAZIO = 'Este cliente ainda não tem um modelo configurado — vá na aba "Configurar Cliente".';
+    SNAPSHOT = []; PAGAMENTOS = {}; MES_ATUAL = null;
+    document.getElementById('mesAtualLabel').textContent = '';
     renderTudo();
     return;
   }
   const { data: meses } = await sb.from('rel_processos_snapshot').select('mes_referencia')
     .eq('cliente_id', CLIENTE_ATIVO).order('mes_referencia',{ascending:false}).limit(1);
   if(!meses || !meses.length){
-    document.getElementById('kpiGrid').innerHTML = '<div class="empty-state">Nenhum dado carregado ainda pra este cliente — suba a primeira base na aba "Atualizar Mês".</div>';
-    SNAPSHOT = []; PAGAMENTOS = {};
+    MENSAGEM_VAZIO = 'Nenhum dado carregado ainda pra este cliente — suba a primeira base na aba "Atualizar Mês".';
+    SNAPSHOT = []; PAGAMENTOS = {}; MES_ATUAL = null;
     document.getElementById('mesAtualLabel').textContent = '';
     renderTudo();
     return;
@@ -487,7 +532,7 @@ async function carregarDados(){
   document.getElementById('mesAtualLabel').textContent = 'Referência: ' + fmtMes(MES_ATUAL);
 
   const brutos = await buscarTudo('rel_processos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL});
-  SNAPSHOT = brutos.map(r => ({ processo: r.processo, status: r.status_calculado, ...r.dados }));
+  SNAPSHOT = brutos.map(r => ({ processo: r.processo, ...r.dados, _status: r.status_calculado }));
 
   const pagBrutos = await buscarTudo('rel_pagamentos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL});
   PAGAMENTOS = {};
@@ -511,13 +556,17 @@ function campoChaveProc(){ const c = colunasProc().find(c=>c.chave); return c ? 
 
 // ── KPIs (gerados a partir das colunas numéricas configuradas) ─────────
 function renderKpis(){
+  if(MENSAGEM_VAZIO){
+    document.getElementById('kpiGrid').innerHTML = `<div class="empty-state">${esc(MENSAGEM_VAZIO)}</div>`;
+    return;
+  }
   const cards = [
     { label:'Total de Processos', val: String(SNAPSHOT.length) },
-    { label:'Novos no Mês', val: String(SNAPSHOT.filter(r=>r.status==='novo').length) },
-    { label:'Encerrados no Mês', val: String(SNAPSHOT.filter(r=>r.status==='encerrado').length) },
+    { label:'Novos no Mês', val: String(SNAPSHOT.filter(r=>r._status==='novo').length) },
+    { label:'Encerrados no Mês', val: String(SNAPSHOT.filter(r=>r._status==='encerrado').length) },
   ];
   colunasProc().filter(c => c.tipo === 'numero').forEach(c => {
-    const ativos = SNAPSHOT.filter(r => r.status !== 'encerrado');
+    const ativos = SNAPSHOT.filter(r => r._status !== 'encerrado');
     const soma = ativos.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
     cards.push({ label: c.label, val: fmtMi(soma), sub: ativos.length + ' processos (exclui encerrados)' });
   });
@@ -539,7 +588,7 @@ function renderUmGrafico(chaveConfig, idCard, idTitulo, idCanvas, tipo, getChart
   card.style.display = '';
   document.getElementById(idTitulo).textContent = cfg.label || 'Carteira';
   const porGrupo = {};
-  SNAPSHOT.filter(r => r.status !== 'encerrado').forEach(r => {
+  SNAPSHOT.filter(r => r._status !== 'encerrado').forEach(r => {
     const g = r[cfg.campo] || '—';
     const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
     porGrupo[g] = (porGrupo[g]||0) + v;
@@ -624,8 +673,8 @@ function renderNovosEncerrados(){
   document.getElementById('theadNovos').innerHTML = theadHtml;
   document.getElementById('theadEncerrados').innerHTML = theadHtml;
 
-  const novos = SNAPSHOT.filter(r => r.status === 'novo');
-  const encerrados = SNAPSHOT.filter(r => r.status === 'encerrado');
+  const novos = SNAPSHOT.filter(r => r._status === 'novo');
+  const encerrados = SNAPSHOT.filter(r => r._status === 'encerrado');
   document.getElementById('contagemNovos').textContent = `(${novos.length})`;
   document.getElementById('contagemEncerrados').textContent = `(${encerrados.length})`;
 
@@ -654,7 +703,7 @@ function renderProcessos(){
   document.getElementById('theadProcessos').innerHTML = '<th>Status</th>' + cols.map(c => `<th>${esc(c.label)}</th>`).join('') + theadExtra;
 
   const filtradas = SNAPSHOT.filter(r => {
-    if(fStatus && r.status !== fStatus) return false;
+    if(fStatus && r._status !== fStatus) return false;
     if(busca){
       const alvo = cols.map(c => r[c.origem]).join(' ').toLowerCase();
       if(!alvo.includes(busca)) return false;
@@ -682,8 +731,106 @@ function renderProcessos(){
       const v = r[c.origem];
       return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
     }).join('');
-    return `<tr><td>${badgeStatus(r.status)}</td>${celulas}${pago}${garantia}</tr>`;
+    return `<tr><td>${badgeStatus(r._status)}</td>${celulas}${pago}${garantia}</tr>`;
   }).join('') || `<tr><td colspan="${1 + cols.length + (campoPago?1:0) + (campoGarantia?1:0)}" class="empty-state">Nenhum processo encontrado.</td></tr>`;
+}
+
+// ── Pagamentos (tabela dedicada, todas as colunas configuradas) ─────────
+function renderPagamentos(){
+  const cols = colunasPag();
+  const linhas = Object.entries(PAGAMENTOS);
+  document.getElementById('contagemPagamentos').textContent = `(${linhas.length})`;
+  if(!cols.length){
+    document.getElementById('theadPagamentos').innerHTML = '';
+    document.getElementById('tbodyPagamentos').innerHTML = '<tr><td class="empty-state">Este cliente não tem colunas de pagamento configuradas.</td></tr>';
+    return;
+  }
+  document.getElementById('theadPagamentos').innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  document.getElementById('tbodyPagamentos').innerHTML = linhas.map(([processo, dados]) => `
+    <tr>${cols.map(c => {
+      const v = dados[c.origem];
+      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+    }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-state">Nenhum pagamento carregado pra este mês.</td></tr>`;
+}
+
+// ── Depósitos e Garantias (subconjunto das colunas de pagamento) ────────
+function renderDepositosGarantias(){
+  const todas = colunasPag();
+  const marcadas = todas.filter(c => c.deposito_garantia);
+  const cols = marcadas.length ? marcadas : todas;
+  const linhas = Object.entries(PAGAMENTOS);
+  document.getElementById('contagemDepositos').textContent = `(${linhas.length})`;
+  if(!cols.length){
+    document.getElementById('theadDepositos').innerHTML = '';
+    document.getElementById('tbodyDepositos').innerHTML = '<tr><td class="empty-state">Este cliente não tem colunas de pagamento configuradas.</td></tr>';
+    return;
+  }
+  document.getElementById('theadDepositos').innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  document.getElementById('tbodyDepositos').innerHTML = linhas.map(([processo, dados]) => `
+    <tr>${cols.map(c => {
+      const v = dados[c.origem];
+      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+    }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-state">Nenhum dado carregado pra este mês.</td></tr>`;
+}
+
+// ── Movimentações do mês (diff campo a campo vs. mês anterior) ──────────
+async function renderMovimentacoes(){
+  const hint = document.getElementById('hintMovimentacoes');
+  const tbody = document.getElementById('tbodyMovimentacoes');
+  const contagem = document.getElementById('contagemMovimentacoes');
+  if(!CONFIG_ATIVA || !MES_ATUAL){
+    hint.textContent = ''; contagem.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Sem dados carregados pra este cliente.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Comparando com o mês anterior…</td></tr>';
+
+  const { data: mesesAnt } = await sb.from('rel_processos_snapshot').select('mes_referencia')
+    .eq('cliente_id', CLIENTE_ATIVO).lt('mes_referencia', MES_ATUAL).order('mes_referencia',{ascending:false}).limit(1);
+  if(!mesesAnt || !mesesAnt.length){
+    hint.textContent = 'Não há um mês anterior pra comparar ainda — este é o primeiro mês carregado pra este cliente.';
+    contagem.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">—</td></tr>';
+    return;
+  }
+  const mesAnt = mesesAnt[0].mes_referencia;
+  hint.textContent = `Comparando ${fmtMes(mesAnt)} → ${fmtMes(MES_ATUAL)}.`;
+
+  const anteriores = await buscarTudo('rel_processos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: mesAnt});
+  const porProcessoAnt = {};
+  anteriores.forEach(r => { porProcessoAnt[r.processo] = r; });
+
+  const cols = colunasProc();
+  const linhas = [];
+  SNAPSHOT.forEach(atual => {
+    const chave = atual[campoChaveProc()];
+    const ant = porProcessoAnt[chave];
+    if(!ant){
+      if(atual._status === 'novo') linhas.push({ processo: chave, campo: '(processo)', de: '—', para: 'Novo no mês' });
+      return;
+    }
+    if(atual._status === 'encerrado' && ant.status_calculado !== 'encerrado'){
+      linhas.push({ processo: chave, campo: '(processo)', de: 'Ativo', para: 'Encerrado no mês' });
+    }
+    cols.forEach(c => {
+      const vAnt = ant.dados ? ant.dados[c.origem] : undefined;
+      const vAtual = atual[c.origem];
+      const nAnt = (vAnt ?? '').toString();
+      const nAtual = (vAtual ?? '').toString();
+      if(nAnt !== nAtual){
+        linhas.push({
+          processo: chave, campo: c.label,
+          de: c.tipo === 'numero' ? fmtMoney(vAnt) : (vAnt ?? '—'),
+          para: c.tipo === 'numero' ? fmtMoney(vAtual) : (vAtual ?? '—'),
+        });
+      }
+    });
+  });
+
+  contagem.textContent = `(${linhas.length})`;
+  tbody.innerHTML = linhas.map(l => `
+    <tr><td class="mono">${esc(l.processo)}</td><td>${esc(l.campo)}</td><td>${esc(l.de)}</td><td>${esc(l.para)}</td></tr>
+  `).join('') || '<tr><td colspan="4" class="empty-state">Nada mudou entre os dois meses.</td></tr>';
 }
 
 // ── Upload: parsing de planilha genérico ────────────────────────────────
@@ -929,19 +1076,25 @@ async function carregarListaClientesConfig(){
 
 function cfgAdicionarColuna(idLista, valores){
   const alvo = document.getElementById(idLista);
-  const linha = document.createElement('div');
-  linha.className = 'col-row';
+  const ehPagamentos = idLista === 'cfgColunasPagamentos';
+  const item = document.createElement('div');
+  item.className = 'coluna-item';
+  item.style.cssText = 'border-bottom:1px solid var(--border2);padding-bottom:8px;margin-bottom:8px;';
   const v = valores || {};
-  linha.innerHTML = `
-    <input type="text" class="cfg-origem" placeholder="Nome da coluna na planilha" value="${esc(v.origem||'')}">
-    <input type="text" class="cfg-label" placeholder="Nome de exibição" value="${esc(v.label||'')}">
-    <select class="cfg-tipo"><option value="texto"${v.tipo!=='numero'?' selected':''}>Texto</option><option value="numero"${v.tipo==='numero'?' selected':''}>Número</option></select>
-    <button type="button" class="icon-btn" onclick="this.parentElement.remove()">✕</button>`;
-  const chaveWrap = document.createElement('label');
-  chaveWrap.style.cssText = 'grid-column:1/3;font-size:11px;display:flex;align-items:center;gap:6px;margin-top:-4px;';
-  chaveWrap.innerHTML = `<input type="checkbox" class="cfg-chave"${v.chave?' checked':''}> é a coluna-chave (identifica o processo)`;
-  alvo.appendChild(linha);
-  alvo.appendChild(chaveWrap);
+  item.innerHTML = `
+    <div class="col-row">
+      <input type="text" class="cfg-origem" placeholder="Nome da coluna na planilha" value="${esc(v.origem||'')}">
+      <input type="text" class="cfg-label" placeholder="Nome de exibição" value="${esc(v.label||'')}">
+      <select class="cfg-tipo"><option value="texto"${v.tipo!=='numero'?' selected':''}>Texto</option><option value="numero"${v.tipo==='numero'?' selected':''}>Número</option></select>
+      <button type="button" class="icon-btn" onclick="this.closest('.coluna-item').remove()">✕</button>
+    </div>
+    <label style="font-size:11px;display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" class="cfg-chave"${v.chave?' checked':''}> é a coluna-chave (identifica o processo)
+    </label>
+    ${ehPagamentos ? `<label style="font-size:11px;display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" class="cfg-dep"${v.deposito_garantia?' checked':''}> é depósito/garantia (aparece na aba "Depósitos e Garantias")
+    </label>` : ''}`;
+  alvo.appendChild(item);
 }
 
 function cfgAtualizarEncerradoUI(){
@@ -950,13 +1103,13 @@ function cfgAtualizarEncerradoUI(){
 }
 
 function cfgLerColunas(idLista){
-  const linhas = document.getElementById(idLista).querySelectorAll('.col-row');
-  return [...linhas].map(linha => ({
-    origem: linha.querySelector('.cfg-origem').value.trim(),
-    label: linha.querySelector('.cfg-label').value.trim(),
-    tipo: linha.querySelector('.cfg-tipo').value,
-    chave: linha.nextElementSibling && linha.nextElementSibling.querySelector('.cfg-chave')
-      ? linha.nextElementSibling.querySelector('.cfg-chave').checked : false,
+  const itens = document.getElementById(idLista).querySelectorAll('.coluna-item');
+  return [...itens].map(item => ({
+    origem: item.querySelector('.cfg-origem').value.trim(),
+    label: item.querySelector('.cfg-label').value.trim(),
+    tipo: item.querySelector('.cfg-tipo').value,
+    chave: item.querySelector('.cfg-chave') ? item.querySelector('.cfg-chave').checked : false,
+    ...(item.querySelector('.cfg-dep') ? { deposito_garantia: item.querySelector('.cfg-dep').checked } : {}),
   })).filter(c => c.origem);
 }
 
@@ -1016,8 +1169,8 @@ function exportarRelatorio(){
     { Indicador:'Cliente', Valor: clienteNome },
     { Indicador:'Mês de referência', Valor: fmtMes(MES_ATUAL) },
     { Indicador:'Total de processos', Valor: SNAPSHOT.length },
-    { Indicador:'Novos no mês', Valor: SNAPSHOT.filter(r=>r.status==='novo').length },
-    { Indicador:'Encerrados no mês', Valor: SNAPSHOT.filter(r=>r.status==='encerrado').length },
+    { Indicador:'Novos no mês', Valor: SNAPSHOT.filter(r=>r._status==='novo').length },
+    { Indicador:'Encerrados no mês', Valor: SNAPSHOT.filter(r=>r._status==='encerrado').length },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Resumo');
 
@@ -1026,7 +1179,7 @@ function exportarRelatorio(){
   const campoGarantia = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_garantia;
   const processos = SNAPSHOT.map(r => {
     const p = PAGAMENTOS[r[chave]] || {};
-    const linha = { Status: r.status };
+    const linha = { Status: r._status };
     cols.forEach(c => { linha[c.label] = r[c.origem]; });
     if(campoPago) linha['Pago no Mês'] = p[campoPago] || 0;
     if(campoGarantia) linha['Garantia no Mês'] = p[campoGarantia] || 0;
