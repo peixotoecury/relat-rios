@@ -712,19 +712,21 @@ function renderKpis(){
   }
 
   if(campoPrincipal && ativos.length){
-    const comValor = ativos.filter(r => r[campoPrincipal] != null && !isNaN(Number(r[campoPrincipal])));
+    // Maior/Menor Caso sempre olham só risco Provável — é o que realmente
+    // importa acompanhar de perto (Possível/Remoto tem chance menor de
+    // se materializar, então um valor grande ali é menos urgente).
+    const comValor = ativos.filter(r => r[campoPrincipal] != null && !isNaN(Number(r[campoPrincipal]))
+      && (inferirRisco(r)||'').toLowerCase().includes('prov'));
     // Menor Caso ignora valor zero/negativo — um caso com R$0 não é
     // informativo como "menor caso" (geralmente é dado incompleto/baixado).
     const comValorPositivo = comValor.filter(r => Number(r[campoPrincipal]) > 0);
     if(comValor.length){
       const maior = comValor.reduce((a,b) => Number(b[campoPrincipal]) > Number(a[campoPrincipal]) ? b : a);
-      const riscoMaior = inferirRisco(maior);
-      cards.push({ label: 'Maior Caso', val: fmtMoney(maior[campoPrincipal]), sub: `${maior[chave]||'—'} — ${maior.reclamante_autor||maior.Reclamante||maior.reclamante||''}`.slice(0,60), badge: riscoBadge(riscoMaior) });
+      cards.push({ label: 'Maior Caso', val: fmtMoney(maior[campoPrincipal]), sub: `${maior[chave]||'—'} — ${maior.reclamante_autor||maior.Reclamante||maior.reclamante||''}`.slice(0,60), badge: riscoBadge('Provável') });
     }
     if(comValorPositivo.length){
       const menor = comValorPositivo.reduce((a,b) => Number(b[campoPrincipal]) < Number(a[campoPrincipal]) ? b : a);
-      const riscoMenor = inferirRisco(menor);
-      cards.push({ label: 'Menor Caso', val: fmtMoney(menor[campoPrincipal]), sub: `${menor[chave]||'—'} — ${menor.reclamante_autor||menor.Reclamante||menor.reclamante||''}`.slice(0,60), badge: riscoBadge(riscoMenor) });
+      cards.push({ label: 'Menor Caso', val: fmtMoney(menor[campoPrincipal]), sub: `${menor[chave]||'—'} — ${menor.reclamante_autor||menor.Reclamante||menor.reclamante||''}`.slice(0,60), badge: riscoBadge('Provável') });
     }
   }
 
