@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório de Contingência | LAWgico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root {
+  --azul-pc:#00A9E0; --cyan-lt:rgba(0,169,224,.12); --escuro-pc:#003B5C; --preto-pc:#2D2926;
+  --bg:#F4F9FC; --surface:#FFFFFF; --surface2:#F7FCFF; --border2:#D8E7F0;
+  --text:#2D2926; --muted:#5F7E92; --muted2:#7E98AA;
+  --red:#C0392B; --red-lt:rgba(192,57,43,.10); --orange:#B85C00; --orange-lt:rgba(230,126,34,.10);
+  --green:#117A65; --green-lt:rgba(17,122,101,.10);
+  --shadow-pc:0 8px 22px rgba(0,59,92,.08); --font:'Sora',sans-serif; --mono:'IBM Plex Mono',monospace;
+  --radius:8px; --radius-lg:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+.topbar{background:linear-gradient(90deg,var(--escuro-pc),#00557B 72%,var(--azul-pc));border-bottom:4px solid var(--azul-pc);box-shadow:0 4px 18px rgba(0,59,92,.22);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.topbar-left{display:flex;align-items:center;gap:16px;}
+.tb-lawgico{display:inline-block;line-height:1;position:relative;}
+.tb-law{font-size:18px;font-weight:800;color:#fff;letter-spacing:-.5px;}
+.tb-gico{font-size:18px;font-weight:300;color:#fff;letter-spacing:-.5px;}
+.tb-modulo{font-size:9px;font-weight:300;color:rgba(255,255,255,.75);position:absolute;top:-11px;right:0;white-space:nowrap;}
+.topbar-divider{width:1px;height:28px;background:rgba(255,255,255,.25);}
+.topbar-title{font-size:13px;font-weight:600;color:rgba(255,255,255,.85);}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.cliente-select{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;font-family:var(--font);}
+.cliente-select option{color:var(--text);}
+.hub-link{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;cursor:pointer;}
+
+.tab-bar{background:var(--surface);border-bottom:1px solid var(--border2);padding:0 24px;display:flex;gap:4px;box-shadow:0 2px 10px rgba(0,59,92,.05);overflow-x:auto;}
+.tab-btn{background:none;border:none;padding:15px 18px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;font-family:var(--font);border-bottom:3px solid transparent;white-space:nowrap;}
+.tab-btn:hover{color:var(--escuro-pc);}
+.tab-btn.active{color:var(--escuro-pc);border-bottom-color:var(--azul-pc);}
+
+.main{max-width:1360px;margin:0 auto;padding:24px 24px 60px;}
+.page{display:none;}
+.page.active{display:block;}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);box-shadow:var(--shadow-pc);padding:16px 18px;position:relative;overflow:hidden;}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--rc,linear-gradient(90deg,var(--azul-pc),var(--escuro-pc)));}
+.kpi-label{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+.kpi-num{font-size:22px;font-weight:800;font-family:var(--mono);color:var(--escuro-pc);}
+.kpi-sub{font-size:11px;color:var(--muted2);margin-top:4px;}
+
+.dash-card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);box-shadow:var(--shadow-pc);margin-bottom:18px;overflow:hidden;}
+.dash-card-head{background:var(--surface2);border-bottom:1px solid var(--border2);padding:15px 22px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--escuro-pc);display:flex;align-items:center;justify-content:space-between;}
+.dash-card-body{padding:18px 22px;}
+
+.grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;}
+@media(max-width:900px){.grid-2{grid-template-columns:1fr;}}
+
+table.rel-table{width:100%;border-collapse:collapse;}
+table.rel-table th{text-align:left;padding:10px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#fff;background:var(--escuro-pc);white-space:nowrap;position:sticky;top:0;}
+table.rel-table td{padding:9px 14px;border-bottom:1px solid var(--border2);font-size:12px;vertical-align:middle;}
+table.rel-table tr:last-child td{border-bottom:none;}
+table.rel-table tr:hover td{background:var(--surface2);}
+.table-wrap{overflow-x:auto;}
+.mono{font-family:var(--mono);}
+.num-pos{color:var(--red);}
+.num-neg{color:var(--green);}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 11px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap;border:1px solid transparent;}
+.badge-pago{background:var(--green-lt);color:var(--green);border-color:rgba(17,122,101,.25);}
+.badge-garantia{background:var(--orange-lt);color:var(--orange);border-color:rgba(230,126,34,.25);}
+.badge-novo{background:var(--cyan-lt);color:var(--azul-pc);border-color:rgba(0,169,224,.3);}
+.badge-encerrado{background:rgba(95,126,146,.12);color:var(--muted);border-color:rgba(95,126,146,.3);}
+.badge-none{background:var(--surface2);color:var(--muted2);}
+.filter-row{display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+.filter-row input,.filter-row select{border:1px solid var(--border2);border-radius:var(--radius);padding:8px 12px;font-size:12.5px;font-family:var(--font);background:var(--surface2);color:var(--text);}
+.empty-state{text-align:center;padding:36px;color:var(--muted2);font-size:13px;}
+
+.form-label{display:block;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+.form-input{border:1px solid var(--border2);border-radius:var(--radius);padding:9px 12px;font-size:13px;font-family:var(--font);background:var(--surface2);color:var(--text);width:100%;}
+.form-group{margin-bottom:16px;}
+.btn{background:var(--azul-pc);color:#fff;border:none;border-radius:var(--radius);padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);}
+.btn-outline{background:none;border:1px solid var(--border2);color:var(--escuro-pc);border-radius:var(--radius);padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);}
+.col-row{display:grid;grid-template-columns:1fr 1fr 90px 32px;gap:8px;margin-bottom:8px;align-items:center;}
+.col-row input[type=text]{border:1px solid var(--border2);border-radius:var(--radius);padding:7px 10px;font-size:12px;font-family:var(--font);}
+.col-row select{border:1px solid var(--border2);border-radius:var(--radius);padding:7px 8px;font-size:11px;font-family:var(--font);}
+.icon-btn{background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;font-weight:700;}
+.hint{font-size:11px;color:var(--muted2);margin-top:4px;}
+.radio-row{display:flex;gap:18px;margin-bottom:10px;}
+.radio-row label{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
+
+/* ── GATE DE SENHA (padrão LAWgico) ─────────────────────────── */
+#pwGate{position:fixed;inset:0;z-index:9999;background:#0B1E2D;overflow:auto;}
+html.gate-open #pwGate{display:none;}
+.lp-wrap{display:flex;width:100%;min-height:100%;}
+.lp-left{flex:0 0 42%;background:linear-gradient(165deg,#0D2A45 0%,#0a1e30 55%,#071828 100%);display:flex;flex-direction:column;justify-content:center;padding:60px 56px;}
+.lp-logo-name{font-family:'Sora',sans-serif;line-height:1;display:inline-block;}
+.lp-logo-name .lp-law{font-size:32px;font-weight:800;color:#fff;letter-spacing:-1px;}
+.lp-logo-name .lp-gico{font-size:32px;font-weight:300;color:#fff;letter-spacing:-1px;}
+.lp-tagline{font-size:10px;font-weight:300;letter-spacing:3.5px;color:rgba(255,255,255,.85);margin-top:6px;}
+.lp-welcome{margin-top:26px;}
+.lp-welcome h2{font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;}
+.lp-welcome p{font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;}
+.lp-right{flex:1;background:#fff;display:flex;align-items:center;justify-content:center;padding:60px 40px;}
+.lp-form-inner{width:100%;max-width:340px;}
+.lp-title{font-size:24px;font-weight:700;color:#0B1E2D;margin-bottom:24px;}
+.lp-input-wrap input{width:100%;padding:12px 14px;background:#f7fafc;border:1.5px solid #dde8f0;border-radius:10px;font-size:13.5px;color:#0B1E2D;outline:none;margin-bottom:14px;}
+.lp-input-wrap input:focus{border-color:#00AEEF;background:#fff;}
+.lp-submit-btn{width:100%;padding:13px;background:linear-gradient(135deg,#0B1E2D 0%,#1a3a5c 100%);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;}
+.lp-err{color:#d94444;font-size:12px;text-align:center;min-height:16px;margin-top:10px;display:none;}
+.lp-err.show{display:block;}
+</style>
+</head>
+<body>
+
+<div id="pwGate">
+<div class="lp-wrap">
+  <div class="lp-left">
+    <div class="lp-logo-name"><span class="lp-law">LAW</span><span class="lp-gico">gico</span></div>
+    <div class="lp-tagline">lawyers at work</div>
+    <div class="lp-welcome">
+      <h2>Relatório de Contingência</h2>
+      <p>Piloto multi-cliente: ponte de accrual, carteira por fase/objeto e conciliação de pagamentos, atualizados mensalmente a partir das bases do eLaw.</p>
+    </div>
+  </div>
+  <div class="lp-right">
+    <div class="lp-form-inner">
+      <div class="lp-title">Acesso restrito</div>
+      <div class="lp-input-wrap"><input type="password" id="gatePass" placeholder="Senha" autocomplete="off"></div>
+      <button class="lp-submit-btn" id="gateBtn" type="button">Entrar</button>
+      <div class="lp-err" id="gateErr">Senha incorreta.</div>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  var HASH='e839fc779b442d5393727d7af62bb94e3d892e44906d0f7d603702d01215f0c1';
+  async function sha256(msg){
+    var buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(msg));
+    return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+  }
+  async function tentar(){
+    var pass=document.getElementById('gatePass').value;
+    var h=await sha256(pass);
+    if(h===HASH){ document.documentElement.classList.add('gate-open'); }
+    else{ document.getElementById('gateErr').classList.add('show'); }
+  }
+  document.getElementById('gateBtn').addEventListener('click',tentar);
+  document.getElementById('gatePass').addEventListener('keydown',function(ev){ if(ev.key==='Enter'){tentar();} });
+})();
+</script>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="tb-lawgico"><span class="tb-law">LAW</span><span class="tb-gico">gico</span><span class="tb-modulo">relatório</span></div>
+    <div class="topbar-divider"></div>
+    <select class="cliente-select" id="seletorCliente" onchange="trocarCliente(this.value)"><option>Carregando…</option></select>
+  </div>
+  <div class="topbar-right">
+    <span id="mesAtualLabel" style="color:rgba(255,255,255,.7);font-size:12px;"></span>
+    <button class="hub-link" onclick="exportarRelatorio()">⬇ Baixar Relatório</button>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="mudarAba('geral')">📊 Visão Geral</button>
+  <button class="tab-btn" onclick="mudarAba('ponte')">🌉 Movimentação do Mês</button>
+  <button class="tab-btn" onclick="mudarAba('processos')">📋 Processos e Pagamentos</button>
+  <button class="tab-btn" onclick="mudarAba('atualizar')">⬆️ Atualizar Mês</button>
+  <button class="tab-btn" onclick="mudarAba('config')">⚙️ Configurar Cliente</button>
+</div>
+
+<div class="main">
+
+  <div id="page-geral" class="page active">
+    <div class="kpi-grid" id="kpiGrid"></div>
+    <div class="grid-2" id="graficosGrid">
+      <div class="dash-card" id="cardGrafico1">
+        <div class="dash-card-head"><span id="tituloGrafico1">Carteira</span></div>
+        <div class="dash-card-body"><canvas id="chartFase" height="220"></canvas></div>
+      </div>
+      <div class="dash-card" id="cardGrafico2">
+        <div class="dash-card-head"><span id="tituloGrafico2">Carteira</span></div>
+        <div class="dash-card-body"><canvas id="chartObjeto" height="220"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-ponte" class="page">
+    <div class="dash-card" id="cardPonte">
+      <div class="dash-card-head"><span>Ponte de Accrual do Mês</span></div>
+      <div class="dash-card-body">
+        <div class="table-wrap"><table class="rel-table" id="tabelaPonte">
+          <thead><tr id="theadPonte"></tr></thead>
+          <tbody id="tbodyPonte"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="dash-card" id="cardTransicao">
+      <div class="dash-card-head"><span>Transição (anterior → atual)</span></div>
+      <div class="dash-card-body">
+        <div class="table-wrap"><table class="rel-table" id="tabelaTransicao">
+          <thead><tr id="theadTransicao"></tr></thead>
+          <tbody id="tbodyTransicao"></tbody>
+        </table></div>
+        <div style="font-size:11px;color:var(--muted2);margin-top:8px;">Linha = valor anterior, coluna = valor atual.</div>
+      </div>
+    </div>
+
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Casos Novos do Mês <span id="contagemNovos"></span></span></div>
+      <div class="dash-card-body">
+        <div class="table-wrap"><table class="rel-table" id="tabelaNovos">
+          <thead><tr id="theadNovos"></tr></thead>
+          <tbody id="tbodyNovos"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Casos Encerrados no Mês <span id="contagemEncerrados"></span></span></div>
+      <div class="dash-card-body">
+        <div class="table-wrap"><table class="rel-table" id="tabelaEncerrados">
+          <thead><tr id="theadEncerrados"></tr></thead>
+          <tbody id="tbodyEncerrados"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-processos" class="page">
+    <div class="filter-row">
+      <input type="text" id="fBusca" placeholder="Buscar processo, reclamante…" oninput="renderProcessos()" style="min-width:260px;">
+      <select id="fStatus" onchange="renderProcessos()">
+        <option value="">Todos os status</option>
+        <option value="novo">Só novos</option>
+        <option value="ativo">Só ativos</option>
+        <option value="encerrado">Só encerrados</option>
+      </select>
+      <select id="fPagto" onchange="renderProcessos()">
+        <option value="">Pagamento/garantia: todos</option>
+        <option value="pago">Só com pagamento no mês</option>
+        <option value="garantia">Só com garantia no mês</option>
+        <option value="nenhum">Sem movimentação de caixa</option>
+      </select>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Processos <span id="contagemProcessos"></span></span></div>
+      <div class="table-wrap"><table class="rel-table" id="tabelaProcessos">
+        <thead><tr id="theadProcessos"></tr></thead>
+        <tbody id="tbodyProcessos"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="page-atualizar" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Subir dados de um novo mês</span></div>
+      <div class="dash-card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Mês de referência</label>
+            <input type="month" id="uploadMes" class="form-input">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Origem do valor monetário</label>
+            <select id="origemValor" class="form-input" onchange="atualizarCamposIndice()">
+              <option value="elaw">eLaw (valores já calculados na planilha)</option>
+              <option value="manual">Manual (aplicar índice de atualização)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="blocoIndices" style="display:none;margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);">
+          <div class="form-label" style="margin-bottom:10px;">Índice(s) de atualização do mês</div>
+          <div id="listaIndices"></div>
+          <button type="button" class="btn-outline" onclick="adicionarLinhaIndice()">+ Adicionar índice</button>
+          <div class="hint">Correção simples de um período: valor corrigido = valor-base × (1 + índice/100). Aplicado sobre o campo "<span id="campoBaseLabel">—</span>" definido na config do cliente.</div>
+        </div>
+        <div id="blocoIndicesSoRegistro" style="display:none;margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);">
+          <div class="form-label" style="margin-bottom:10px;">Índice(s) do mês (só registro, não altera valores)</div>
+          <div id="listaIndicesRegistro"></div>
+          <button type="button" class="btn-outline" onclick="adicionarLinhaIndice(true)">+ Adicionar índice</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+          <div>
+            <div style="font-weight:700;color:var(--escuro-pc);margin-bottom:6px;">1. Base de Processos (export do eLaw / view do escritório)</div>
+            <div style="font-size:11px;color:var(--muted2);margin-bottom:8px;">Colunas de origem conforme configurado pra este cliente (aba "Configurar Cliente").</div>
+            <input type="file" id="fileContingencia" accept=".xlsx" style="margin-bottom:8px;">
+            <input type="text" id="sheetContingencia" placeholder='Nome da aba (deixe em branco pra usar a 1ª)' class="form-input" style="margin-bottom:8px;">
+            <input type="number" id="headerRowContingencia" placeholder="Linha do cabeçalho (padrão 3)" class="form-input" style="margin-bottom:8px;">
+            <button class="btn" onclick="uploadContingencia()">Processar e enviar</button>
+            <div id="statusContingencia" style="font-size:12px;margin-top:10px;color:var(--muted);"></div>
+          </div>
+          <div>
+            <div style="font-weight:700;color:var(--escuro-pc);margin-bottom:6px;">2. Base de Pagamentos</div>
+            <div style="font-size:11px;color:var(--muted2);margin-bottom:8px;">Opcional — só se o cliente tiver controle de pagamentos configurado.</div>
+            <input type="file" id="filePagamentos" accept=".xlsx,.xlsm" style="margin-bottom:8px;">
+            <input type="text" id="sheetPagamentos" placeholder='Nome da aba (deixe em branco pra usar a 1ª)' class="form-input" style="margin-bottom:8px;">
+            <input type="number" id="headerRowPagamentos" placeholder="Linha do cabeçalho (padrão 2)" class="form-input" style="margin-bottom:8px;">
+            <button class="btn" onclick="uploadPagamentos()">Processar e enviar</button>
+            <div id="statusPagamentos" style="font-size:12px;margin-top:10px;color:var(--muted);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-config" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Clientes cadastrados</span></div>
+      <div class="dash-card-body">
+        <div class="table-wrap"><table class="rel-table">
+          <thead><tr><th>Nome</th><th>Slug</th><th>Status</th></tr></thead>
+          <tbody id="tbodyClientes"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="dash-card">
+      <div class="dash-card-head"><span>Cadastrar / atualizar modelo de cliente</span></div>
+      <div class="dash-card-body">
+        <div class="form-group">
+          <label class="form-label">Nome do cliente</label>
+          <input type="text" id="cfgNome" class="form-input" placeholder="Ex: Embraer">
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Colunas do relatório de Processos</div>
+          <div id="cfgColunasProcessos"></div>
+          <button type="button" class="btn-outline" onclick="cfgAdicionarColuna('cfgColunasProcessos')">+ Adicionar coluna</button>
+          <div class="hint">"Origem" é o nome exato da coluna na planilha que vocês sobem todo mês. Marque "chave" na coluna que identifica o processo (normalmente o número CNJ) — obrigatório ter exatamente uma.</div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Colunas do relatório de Pagamentos (opcional)</div>
+          <div id="cfgColunasPagamentos"></div>
+          <button type="button" class="btn-outline" onclick="cfgAdicionarColuna('cfgColunasPagamentos')">+ Adicionar coluna</button>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Como detectar processo encerrado</div>
+          <div class="radio-row">
+            <label><input type="radio" name="cfgEncerradoFonte" value="comparacao_mes_anterior" checked onchange="cfgAtualizarEncerradoUI()"> Comparar com o mês anterior</label>
+            <label><input type="radio" name="cfgEncerradoFonte" value="campo_status" onchange="cfgAtualizarEncerradoUI()"> Por um campo de status</label>
+          </div>
+          <div id="cfgEncerradoCampoStatus" style="display:none;">
+            <input type="text" id="cfgCampoStatus" class="form-input" placeholder="Nome da coluna de origem (ex: Status)" style="margin-bottom:8px;">
+            <input type="text" id="cfgValoresEncerrado" class="form-input" placeholder="Valores que indicam encerrado, separados por vírgula (ex: Closed, Encerrado)" style="margin-bottom:8px;">
+            <input type="text" id="cfgValoresNovo" class="form-input" placeholder="Valores que indicam novo, separados por vírgula (opcional, ex: Ativo - Novo)">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Campo-base pra correção manual do índice (opcional)</label>
+          <input type="text" id="cfgCampoBaseCorrecao" class="form-input" placeholder="Ex: accrual">
+        </div>
+
+        <button class="btn" onclick="salvarConfigCliente()">Salvar cliente</button>
+        <div id="statusConfig" style="font-size:12px;margin-top:10px;color:var(--muted);"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://rpibvjcnrseuugpkfmdj.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwaWJ2amNucnNldXVncGtmbWRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTc3MTcsImV4cCI6MjA5NzEzMzcxN30.ecihol8JESMH7cgFSvWKIzp-OwoPRFqdK3aCDwpCeg8';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtMoney(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtMi(v){ return 'R$ ' + ((Number(v)||0)/1000000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' M'; }
+function fmtMes(m){
+  if(!m) return '';
+  const [y,mo] = m.split('-');
+  const nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return nomes[parseInt(mo)-1] + '/' + y;
+}
+
+// ── Formatador de palavras (padronização de texto) ──────────────────────
+const SIGLAS_PRESERVAR = ['LTDA','S.A.','SA','ME','EPP','EIRELI','MEI','CNPJ','CPF','INSS','IRRF','FGTS','CLT','PJE','TRT','TST'];
+function padronizarTexto(valor){
+  if(valor == null) return valor;
+  if(typeof valor !== 'string') return valor;
+  let s = valor.replace(/\s+/g,' ').trim();
+  if(!s) return s;
+  // Não mexe se já parecer código/número (CNJ, datas, valores)
+  if(/^[\d./\-:,R$\s]+$/.test(s)) return s;
+  const palavras = s.split(' ').map(p => {
+    const pUpper = p.toUpperCase().replace(/[.,]+$/,'');
+    if(SIGLAS_PRESERVAR.includes(pUpper)) return p.toUpperCase();
+    const minusculas = ['de','da','do','das','dos','e','em','a','o'];
+    const pLower = p.toLowerCase();
+    if(minusculas.includes(pLower)) return pLower;
+    if(p.length <= 1) return p.toUpperCase();
+    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  });
+  palavras[0] = palavras[0].charAt(0).toUpperCase() + palavras[0].slice(1);
+  return palavras.join(' ');
+}
+
+let CLIENTES = [];
+let CLIENTE_ATIVO = null;
+let CONFIG_ATIVA = null;
+let SNAPSHOT = [];
+let PAGAMENTOS = {};
+let MES_ATUAL = null;
+let ABA_ATIVA = 'geral';
+
+function mudarAba(aba){
+  ABA_ATIVA = aba;
+  const ordem = ['geral','ponte','processos','atualizar','config'];
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ordem[i] === aba));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-'+aba).classList.add('active');
+  if(aba === 'config') carregarListaClientesConfig();
+}
+
+// ── Carregamento de clientes e config ───────────────────────────────────
+async function carregarClientes(){
+  const { data, error } = await sb.from('rel_clientes').select('*').eq('ativo', true).order('nome');
+  if(error){ console.error(error); return; }
+  CLIENTES = data || [];
+  const sel = document.getElementById('seletorCliente');
+  if(!CLIENTES.length){
+    sel.innerHTML = '<option>Nenhum cliente cadastrado</option>';
+    return;
+  }
+  sel.innerHTML = CLIENTES.map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  if(CLIENTE_ATIVO == null) CLIENTE_ATIVO = CLIENTES[0].id;
+  sel.value = CLIENTE_ATIVO;
+  await carregarConfigECliente();
+}
+
+async function trocarCliente(id){
+  CLIENTE_ATIVO = Number(id);
+  await carregarConfigECliente();
+}
+
+async function carregarConfigECliente(){
+  const { data: configs } = await sb.from('rel_config_cliente').select('*')
+    .eq('cliente_id', CLIENTE_ATIVO).order('id',{ascending:false}).limit(1);
+  CONFIG_ATIVA = (configs && configs[0]) ? configs[0].config : null;
+  await carregarDados();
+}
+
+// ── Carregamento de dados do mês mais recente ───────────────────────────
+async function buscarTudo(tabela, filtros){
+  const PAGINA = 1000;
+  let tudo = [];
+  let offset = 0;
+  while(true){
+    let q = sb.from(tabela).select('*');
+    Object.entries(filtros).forEach(([k,v]) => { q = q.eq(k,v); });
+    const { data, error } = await q.range(offset, offset + PAGINA - 1);
+    if(error){ console.error(tabela, error); break; }
+    tudo = tudo.concat(data || []);
+    if(!data || data.length < PAGINA) break;
+    offset += PAGINA;
+  }
+  return tudo;
+}
+
+async function carregarDados(){
+  if(!CONFIG_ATIVA){
+    document.getElementById('kpiGrid').innerHTML = '<div class="empty-state">Este cliente ainda não tem um modelo configurado — vá na aba "Configurar Cliente".</div>';
+    SNAPSHOT = []; PAGAMENTOS = {};
+    renderTudo();
+    return;
+  }
+  const { data: meses } = await sb.from('rel_processos_snapshot').select('mes_referencia')
+    .eq('cliente_id', CLIENTE_ATIVO).order('mes_referencia',{ascending:false}).limit(1);
+  if(!meses || !meses.length){
+    document.getElementById('kpiGrid').innerHTML = '<div class="empty-state">Nenhum dado carregado ainda pra este cliente — suba a primeira base na aba "Atualizar Mês".</div>';
+    SNAPSHOT = []; PAGAMENTOS = {};
+    document.getElementById('mesAtualLabel').textContent = '';
+    renderTudo();
+    return;
+  }
+  MES_ATUAL = meses[0].mes_referencia;
+  document.getElementById('mesAtualLabel').textContent = 'Referência: ' + fmtMes(MES_ATUAL);
+
+  const brutos = await buscarTudo('rel_processos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL});
+  SNAPSHOT = brutos.map(r => ({ processo: r.processo, status: r.status_calculado, ...r.dados }));
+
+  const pagBrutos = await buscarTudo('rel_pagamentos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: MES_ATUAL});
+  PAGAMENTOS = {};
+  pagBrutos.forEach(r => { PAGAMENTOS[r.processo] = r.dados; });
+
+  renderTudo();
+}
+
+function renderTudo(){
+  renderKpis();
+  renderGraficos();
+  renderPonte();
+  renderTransicao();
+  renderNovosEncerrados();
+  renderProcessos();
+}
+
+function colunasProc(){ return (CONFIG_ATIVA && CONFIG_ATIVA.colunas_processos) || []; }
+function colunasPag(){ return (CONFIG_ATIVA && CONFIG_ATIVA.colunas_pagamentos) || []; }
+function campoChaveProc(){ const c = colunasProc().find(c=>c.chave); return c ? c.origem : 'processo'; }
+
+// ── KPIs (gerados a partir das colunas numéricas configuradas) ─────────
+function renderKpis(){
+  const cards = [
+    { label:'Total de Processos', val: String(SNAPSHOT.length) },
+    { label:'Novos no Mês', val: String(SNAPSHOT.filter(r=>r.status==='novo').length) },
+    { label:'Encerrados no Mês', val: String(SNAPSHOT.filter(r=>r.status==='encerrado').length) },
+  ];
+  colunasProc().filter(c => c.tipo === 'numero').forEach(c => {
+    const ativos = SNAPSHOT.filter(r => r.status !== 'encerrado');
+    const soma = ativos.reduce((s,r) => s + (Number(r[c.origem])||0), 0);
+    cards.push({ label: c.label, val: fmtMi(soma), sub: ativos.length + ' processos (exclui encerrados)' });
+  });
+  document.getElementById('kpiGrid').innerHTML = cards.map(c =>
+    `<div class="kpi-card"><div class="kpi-label">${esc(c.label)}</div><div class="kpi-num">${c.val}</div>${c.sub?`<div class="kpi-sub">${esc(c.sub)}</div>`:''}</div>`
+  ).join('');
+}
+
+// ── Gráficos (opcionais, config-driven) ─────────────────────────────────
+let CHART_FASE=null, CHART_OBJETO=null;
+function renderGraficos(){
+  renderUmGrafico('grafico1', 'cardGrafico1', 'tituloGrafico1', 'chartFase', 'bar', () => CHART_FASE, c => CHART_FASE = c, ['#00A9E0']);
+  renderUmGrafico('grafico2', 'cardGrafico2', 'tituloGrafico2', 'chartObjeto', 'doughnut', () => CHART_OBJETO, c => CHART_OBJETO = c, ['#C0392B','#B85C00','#117A65','#7E98AA','#00A9E0']);
+}
+function renderUmGrafico(chaveConfig, idCard, idTitulo, idCanvas, tipo, getChart, setChart, cores){
+  const cfg = CONFIG_ATIVA && CONFIG_ATIVA[chaveConfig];
+  const card = document.getElementById(idCard);
+  if(!cfg || !cfg.campo){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById(idTitulo).textContent = cfg.label || 'Carteira';
+  const porGrupo = {};
+  SNAPSHOT.filter(r => r.status !== 'encerrado').forEach(r => {
+    const g = r[cfg.campo] || '—';
+    const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
+    porGrupo[g] = (porGrupo[g]||0) + v;
+  });
+  const labels = Object.keys(porGrupo);
+  const vals = labels.map(l => porGrupo[l]);
+  const atual = getChart();
+  if(atual) atual.destroy();
+  setChart(new Chart(document.getElementById(idCanvas), {
+    type: tipo,
+    data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? cores : cores[0] }] },
+    options: tipo==='doughnut'
+      ? { plugins:{legend:{position:'bottom'}} }
+      : { plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMi(v) } } } },
+  }));
+}
+
+// ── Ponte de Accrual (opcional, config-driven) ──────────────────────────
+function renderPonte(){
+  const cfg = CONFIG_ATIVA && CONFIG_ATIVA.ponte;
+  const card = document.getElementById('cardPonte');
+  if(!cfg || !cfg.campo_tipo){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  const d1 = cfg.campo_delta1, d2 = cfg.campo_delta2;
+  document.getElementById('theadPonte').innerHTML = '<th>Tipo de movimento</th><th>Qtd. processos</th>' +
+    (d1 ? `<th>${esc(d1.label)}</th>` : '') + (d2 ? `<th>${esc(d2.label)}</th>` : '');
+  const grupos = {};
+  SNAPSHOT.forEach(r => {
+    const tipo = r[cfg.campo_tipo] || '(sem classificação)';
+    grupos[tipo] = grupos[tipo] || { qtd:0, v1:0, v2:0 };
+    grupos[tipo].qtd++;
+    if(d1) grupos[tipo].v1 += (Number(r[d1.origem])||0);
+    if(d2) grupos[tipo].v2 += (Number(r[d2.origem])||0);
+  });
+  const linhas = Object.entries(grupos).sort((a,b) => b[1].qtd - a[1].qtd);
+  document.getElementById('tbodyPonte').innerHTML = linhas.map(([tipo,v]) => `
+    <tr>
+      <td>${esc(tipo)}</td>
+      <td>${v.qtd}</td>
+      ${d1 ? `<td class="mono ${v.v1>=0?'num-pos':'num-neg'}">${fmtMoney(v.v1)}</td>` : ''}
+      ${d2 ? `<td class="mono ${v.v2>=0?'num-pos':'num-neg'}">${fmtMoney(v.v2)}</td>` : ''}
+    </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Sem dados.</td></tr>';
+}
+
+// ── Transição (opcional, config-driven) ─────────────────────────────────
+function renderTransicao(){
+  const cfg = CONFIG_ATIVA && CONFIG_ATIVA.transicao;
+  const card = document.getElementById('cardTransicao');
+  if(!cfg || !cfg.campo_de || !cfg.campo_para){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  const valores = [...new Set(SNAPSHOT.flatMap(r => [r[cfg.campo_de], r[cfg.campo_para]]).filter(Boolean))].sort();
+  const matriz = {};
+  valores.forEach(de => { matriz[de] = {}; valores.forEach(pa => matriz[de][pa] = 0); });
+  let semAnterior = 0;
+  SNAPSHOT.forEach(r => {
+    const de = r[cfg.campo_de], pa = r[cfg.campo_para];
+    if(!de || !pa){ semAnterior++; return; }
+    if(matriz[de] && matriz[de][pa] !== undefined) matriz[de][pa]++;
+  });
+  document.getElementById('theadTransicao').innerHTML = '<th>De \\ Para</th>' + valores.map(v => `<th>${esc(v)}</th>`).join('');
+  document.getElementById('tbodyTransicao').innerHTML = valores.map(de => `
+    <tr>
+      <td style="font-weight:700;">${esc(de)}</td>
+      ${valores.map(pa => {
+        const n = matriz[de][pa];
+        const mudou = de !== pa && n > 0;
+        return `<td class="mono"${mudou ? ' style="color:var(--red);font-weight:700;"' : ''}>${n || '—'}</td>`;
+      }).join('')}
+    </tr>`).join('') +
+    (semAnterior ? `<tr><td colspan="${valores.length+1}" style="color:var(--muted2);font-style:italic;">${semAnterior} processo(s) sem valor anterior registrado (provavelmente casos novos do mês).</td></tr>` : '');
+}
+
+// ── Casos Novos / Encerrados (sempre disponível — vem do status_calculado) ─
+function colunasResumo(){
+  const chave = campoChaveProc();
+  const cols = colunasProc().filter(c => !c.chave).slice(0, 4);
+  return [{ origem: chave, label: 'Processo' }, ...cols];
+}
+function renderNovosEncerrados(){
+  const cols = colunasResumo();
+  const theadHtml = cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  document.getElementById('theadNovos').innerHTML = theadHtml;
+  document.getElementById('theadEncerrados').innerHTML = theadHtml;
+
+  const novos = SNAPSHOT.filter(r => r.status === 'novo');
+  const encerrados = SNAPSHOT.filter(r => r.status === 'encerrado');
+  document.getElementById('contagemNovos').textContent = `(${novos.length})`;
+  document.getElementById('contagemEncerrados').textContent = `(${encerrados.length})`;
+
+  const linha = r => `<tr>${cols.map(c => {
+    const v = r[c.origem];
+    return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+  }).join('')}</tr>`;
+
+  document.getElementById('tbodyNovos').innerHTML = novos.map(linha).join('') ||
+    `<tr><td colspan="${cols.length}" class="empty-state">Nenhum caso novo este mês.</td></tr>`;
+  document.getElementById('tbodyEncerrados').innerHTML = encerrados.map(linha).join('') ||
+    `<tr><td colspan="${cols.length}" class="empty-state">Nenhum caso encerrado este mês.</td></tr>`;
+}
+
+// ── Processos (tabela principal, colunas dinâmicas) ─────────────────────
+function renderProcessos(){
+  const busca = (document.getElementById('fBusca').value || '').toLowerCase();
+  const fStatus = document.getElementById('fStatus').value;
+  const fPagto = document.getElementById('fPagto').value;
+  const chave = campoChaveProc();
+  const campoPago = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_pago;
+  const campoGarantia = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_garantia;
+
+  const cols = colunasProc();
+  const theadExtra = (campoPago ? '<th>Pago no Mês</th>' : '') + (campoGarantia ? '<th>Garantia no Mês</th>' : '');
+  document.getElementById('theadProcessos').innerHTML = '<th>Status</th>' + cols.map(c => `<th>${esc(c.label)}</th>`).join('') + theadExtra;
+
+  const filtradas = SNAPSHOT.filter(r => {
+    if(fStatus && r.status !== fStatus) return false;
+    if(busca){
+      const alvo = cols.map(c => r[c.origem]).join(' ').toLowerCase();
+      if(!alvo.includes(busca)) return false;
+    }
+    const p = PAGAMENTOS[r[chave]];
+    const pago = p && campoPago ? Number(p[campoPago])||0 : 0;
+    const garantia = p && campoGarantia ? Number(p[campoGarantia])||0 : 0;
+    if(fPagto === 'pago' && !(pago > 0)) return false;
+    if(fPagto === 'garantia' && !(garantia > 0)) return false;
+    if(fPagto === 'nenhum' && (pago > 0 || garantia > 0)) return false;
+    return true;
+  }).slice(0, 500);
+
+  document.getElementById('contagemProcessos').textContent = `(${filtradas.length}${filtradas.length===500?'+ — refine a busca':''})`;
+
+  const badgeStatus = s => s === 'novo' ? '<span class="badge badge-novo">Novo</span>'
+    : s === 'encerrado' ? '<span class="badge badge-encerrado">Encerrado</span>'
+    : '<span class="badge badge-none">Ativo</span>';
+
+  document.getElementById('tbodyProcessos').innerHTML = filtradas.map(r => {
+    const p = PAGAMENTOS[r[chave]] || {};
+    const pago = campoPago && p[campoPago] > 0 ? `<td><span class="badge badge-pago">${fmtMoney(p[campoPago])}</span></td>` : (campoPago ? '<td><span class="badge badge-none">—</span></td>' : '');
+    const garantia = campoGarantia && p[campoGarantia] > 0 ? `<td><span class="badge badge-garantia">${fmtMoney(p[campoGarantia])}</span></td>` : (campoGarantia ? '<td><span class="badge badge-none">—</span></td>' : '');
+    const celulas = cols.map(c => {
+      const v = r[c.origem];
+      return `<td${c.tipo==='numero'?' class="mono"':''}>${c.tipo==='numero' ? fmtMoney(v) : esc(v ?? '—')}</td>`;
+    }).join('');
+    return `<tr><td>${badgeStatus(r.status)}</td>${celulas}${pago}${garantia}</tr>`;
+  }).join('') || `<tr><td colspan="${1 + cols.length + (campoPago?1:0) + (campoGarantia?1:0)}" class="empty-state">Nenhum processo encontrado.</td></tr>`;
+}
+
+// ── Upload: parsing de planilha genérico ────────────────────────────────
+function primeiraOcorrenciaIdx(headerRow){
+  const idx = {};
+  headerRow.forEach((h,i) => {
+    const nome = (h==null?'':String(h)).trim();
+    if(nome && !(nome in idx)) idx[nome] = i;
+  });
+  return idx;
+}
+function numJs(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v === 'number') return v;
+  let s = String(v).trim();
+  if(s==='***'||s==='N/A') return null;
+  s = s.replace('R$','').replace(/\xa0/g,' ').trim();
+  if(s.includes(',') && s.includes('.')) s = s.replace(/\./g,'').replace(',','.');
+  else if(s.includes(',')) s = s.replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function dataIsoJs(v){
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  return null;
+}
+async function lerPlanilha(file){
+  const buf = await file.arrayBuffer();
+  return XLSX.read(buf, {type:'array', cellDates:true});
+}
+async function upsertLotes(tabela, registros, statusEl, onConflict){
+  const LOTE = 250;
+  for(let i=0;i<registros.length;i+=LOTE){
+    const chunk = registros.slice(i,i+LOTE);
+    const { error } = await sb.from(tabela).upsert(chunk, { onConflict });
+    if(error){ throw new Error(`${tabela}: ${error.message}`); }
+    statusEl.textContent = `Enviando… ${Math.min(i+LOTE,registros.length)}/${registros.length}`;
+  }
+}
+
+// ── Índices de atualização (linhas dinâmicas no form) ───────────────────
+function atualizarCamposIndice(){
+  const manual = document.getElementById('origemValor').value === 'manual';
+  document.getElementById('blocoIndices').style.display = manual ? '' : 'none';
+  document.getElementById('blocoIndicesSoRegistro').style.display = manual ? 'none' : '';
+  document.getElementById('campoBaseLabel').textContent = (CONFIG_ATIVA && CONFIG_ATIVA.campo_base_correcao) || '(não configurado pra este cliente)';
+  if(manual && !document.getElementById('listaIndices').children.length) adicionarLinhaIndice();
+  if(!manual && !document.getElementById('listaIndicesRegistro').children.length) adicionarLinhaIndice(true);
+}
+function adicionarLinhaIndice(soRegistro){
+  const alvo = document.getElementById(soRegistro ? 'listaIndicesRegistro' : 'listaIndices');
+  const linha = document.createElement('div');
+  linha.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+  linha.innerHTML = `
+    <select class="form-input idx-tipo" style="max-width:140px;">
+      <option value="IPCA">IPCA</option><option value="SELIC">SELIC</option><option value="TR">TR</option><option value="OUTRO">Outro</option>
+    </select>
+    <input type="number" step="0.0001" class="form-input idx-valor" placeholder="Valor % do período">
+    <button type="button" class="icon-btn" onclick="this.parentElement.remove()">✕</button>`;
+  alvo.appendChild(linha);
+}
+function coletarIndices(soRegistro){
+  const alvo = document.getElementById(soRegistro ? 'listaIndicesRegistro' : 'listaIndices');
+  return [...alvo.children].map(linha => ({
+    tipo_indice: linha.querySelector('.idx-tipo').value,
+    valor: parseFloat(linha.querySelector('.idx-valor').value),
+  })).filter(i => !isNaN(i.valor));
+}
+
+async function gravarIndices(mesRef, indices, origemAplicada){
+  if(!indices.length) return;
+  const registros = indices.map(i => ({ cliente_id: CLIENTE_ATIVO, mes_referencia: mesRef, tipo_indice: i.tipo_indice, valor: i.valor, origem_aplicada: origemAplicada }));
+  await sb.from('rel_indices_mensais').insert(registros);
+}
+
+async function uploadContingencia(){
+  const fileInput = document.getElementById('fileContingencia');
+  const sheetName = document.getElementById('sheetContingencia').value.trim();
+  const headerRow = parseInt(document.getElementById('headerRowContingencia').value) || 3;
+  const mes = document.getElementById('uploadMes').value;
+  const statusEl = document.getElementById('statusContingencia');
+  if(!CONFIG_ATIVA){ statusEl.textContent = 'Configure o modelo deste cliente primeiro (aba Configurar Cliente).'; return; }
+  if(!fileInput.files[0]){ statusEl.textContent = 'Escolha o arquivo primeiro.'; return; }
+  if(!mes){ statusEl.textContent = 'Escolha o mês de referência.'; return; }
+  const mesRef = mes + '-01';
+  const origemValor = document.getElementById('origemValor').value;
+
+  try{
+    statusEl.textContent = 'Lendo planilha…';
+    const wb = await lerPlanilha(fileInput.files[0]);
+    const aba = sheetName && wb.SheetNames.includes(sheetName) ? sheetName : wb.SheetNames[0];
+    const rowsRaw = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header:1, raw:true });
+    const headerLinha = rowsRaw[headerRow - 1];
+    if(!headerLinha){ statusEl.textContent = `Linha de cabeçalho ${headerRow} não encontrada na aba "${aba}".`; return; }
+    const idx = primeiraOcorrenciaIdx(headerLinha);
+
+    const colunas = CONFIG_ATIVA.colunas_processos || [];
+    const chaveCol = colunas.find(c => c.chave);
+    if(!chaveCol){ statusEl.textContent = 'A config deste cliente não tem uma coluna marcada como chave.'; return; }
+    const faltando = colunas.filter(c => !(c.origem in idx));
+    if(faltando.length){
+      statusEl.textContent = 'Colunas não encontradas na planilha: ' + faltando.map(c=>c.origem).join(', ');
+      return;
+    }
+
+    const dados = rowsRaw.slice(headerRow).filter(r => r && r.some(v => v!==null && v!==undefined && v!==''));
+    const campoBase = CONFIG_ATIVA.campo_base_correcao;
+    const indices = coletarIndices(origemValor === 'manual');
+    const somaIndice = indices.reduce((s,i) => s + i.valor, 0);
+
+    const linhasDoMes = {}; // processo -> dados
+    for(const r of dados){
+      const linha = {};
+      colunas.forEach(c => {
+        let v = r[idx[c.origem]];
+        if(c.tipo === 'numero') v = numJs(v);
+        else if(v instanceof Date) v = dataIsoJs(v);
+        else v = padronizarTexto(v);
+        linha[c.origem] = v;
+      });
+      if(origemValor === 'manual' && campoBase && linha[campoBase] != null && somaIndice){
+        linha[campoBase] = Math.round(linha[campoBase] * (1 + somaIndice/100) * 100) / 100;
+      }
+      const processo = linha[chaveCol.origem];
+      if(!processo) continue;
+      linhasDoMes[String(processo).trim()] = linha;
+    }
+
+    // status novo/ativo/encerrado
+    let statusPorProcesso = {};
+    const encerradoCfg = CONFIG_ATIVA.encerrado || {fonte:'comparacao_mes_anterior'};
+    if(encerradoCfg.fonte === 'campo_status'){
+      const valoresEncerrado = (encerradoCfg.valores_encerrado || []).map(v => String(v).toLowerCase());
+      const valoresNovo = (encerradoCfg.valores_novo || []).map(v => String(v).toLowerCase());
+      Object.entries(linhasDoMes).forEach(([processo, linha]) => {
+        const v = String(linha[encerradoCfg.campo] ?? '').toLowerCase();
+        statusPorProcesso[processo] = valoresEncerrado.includes(v) ? 'encerrado' : valoresNovo.includes(v) ? 'novo' : 'ativo';
+      });
+    } else {
+      const { data: mesesAnt } = await sb.from('rel_processos_snapshot').select('mes_referencia')
+        .eq('cliente_id', CLIENTE_ATIVO).lt('mes_referencia', mesRef).order('mes_referencia',{ascending:false}).limit(1);
+      const processosAnteriores = {};
+      if(mesesAnt && mesesAnt.length){
+        const anteriores = await buscarTudo('rel_processos_snapshot', {cliente_id: CLIENTE_ATIVO, mes_referencia: mesesAnt[0].mes_referencia});
+        anteriores.filter(r => r.status_calculado !== 'encerrado').forEach(r => { processosAnteriores[r.processo] = r.dados; });
+      }
+      Object.keys(linhasDoMes).forEach(processo => {
+        statusPorProcesso[processo] = processosAnteriores[processo] ? 'ativo' : 'novo';
+      });
+      // quem estava ativo/novo no mês anterior e sumiu deste upload -> carrega como encerrado
+      Object.entries(processosAnteriores).forEach(([processo, dadosAnt]) => {
+        if(!linhasDoMes[processo]){
+          linhasDoMes[processo] = dadosAnt;
+          statusPorProcesso[processo] = 'encerrado';
+        }
+      });
+    }
+
+    const registros = Object.entries(linhasDoMes).map(([processo, dados]) => ({
+      cliente_id: CLIENTE_ATIVO, mes_referencia: mesRef, processo,
+      dados, status_calculado: statusPorProcesso[processo] || 'ativo',
+    }));
+
+    statusEl.textContent = `${registros.length} processos lidos. Enviando…`;
+    await upsertLotes('rel_processos_snapshot', registros, statusEl, 'cliente_id,mes_referencia,processo');
+    await gravarIndices(mesRef, indices, origemValor === 'manual' ? 'manual' : 'elaw');
+    statusEl.textContent = `✅ ${registros.length} processos atualizados pra ${fmtMes(mesRef)}.`;
+    carregarDados();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '❌ Erro: ' + err.message;
+  }
+}
+
+async function uploadPagamentos(){
+  const fileInput = document.getElementById('filePagamentos');
+  const sheetName = document.getElementById('sheetPagamentos').value.trim();
+  const headerRow = parseInt(document.getElementById('headerRowPagamentos').value) || 2;
+  const mes = document.getElementById('uploadMes').value;
+  const statusEl = document.getElementById('statusPagamentos');
+  if(!CONFIG_ATIVA || !(CONFIG_ATIVA.colunas_pagamentos||[]).length){ statusEl.textContent = 'Este cliente não tem colunas de pagamento configuradas.'; return; }
+  if(!fileInput.files[0]){ statusEl.textContent = 'Escolha o arquivo primeiro.'; return; }
+  if(!mes){ statusEl.textContent = 'Escolha o mês de referência.'; return; }
+  const mesRef = mes + '-01';
+
+  try{
+    statusEl.textContent = 'Lendo planilha…';
+    const wb = await lerPlanilha(fileInput.files[0]);
+    const aba = sheetName && wb.SheetNames.includes(sheetName) ? sheetName : wb.SheetNames[0];
+    const rowsRaw = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header:1, raw:true });
+    const headerLinha = rowsRaw[headerRow - 1];
+    if(!headerLinha){ statusEl.textContent = `Linha de cabeçalho ${headerRow} não encontrada na aba "${aba}".`; return; }
+    const idx = primeiraOcorrenciaIdx(headerLinha);
+
+    const colunas = CONFIG_ATIVA.colunas_pagamentos;
+    const chaveCol = colunas.find(c => c.chave);
+    if(!chaveCol){ statusEl.textContent = 'A config de pagamentos não tem uma coluna marcada como chave.'; return; }
+
+    const dados = rowsRaw.slice(headerRow).filter(r => r && r.some(v => v!==null && v!==undefined && v!==''));
+    const porProcesso = {};
+    for(const r of dados){
+      const linha = {};
+      colunas.forEach(c => {
+        if(!(c.origem in idx)) return;
+        let v = r[idx[c.origem]];
+        if(c.tipo === 'numero') v = numJs(v);
+        else if(v instanceof Date) v = dataIsoJs(v);
+        else v = padronizarTexto(v);
+        linha[c.origem] = v;
+      });
+      const processo = linha[chaveCol.origem];
+      if(!processo) continue;
+      const chave = String(processo).trim();
+      if(!porProcesso[chave]) porProcesso[chave] = linha;
+      else {
+        // linhas repetidas do mesmo processo: soma campos numéricos
+        colunas.filter(c => c.tipo === 'numero').forEach(c => {
+          porProcesso[chave][c.origem] = (porProcesso[chave][c.origem]||0) + (linha[c.origem]||0);
+        });
+      }
+    }
+
+    const registros = Object.entries(porProcesso).map(([processo, dados]) => ({
+      cliente_id: CLIENTE_ATIVO, mes_referencia: mesRef, processo, dados,
+    }));
+    statusEl.textContent = `${registros.length} processos lidos. Enviando…`;
+    await upsertLotes('rel_pagamentos_snapshot', registros, statusEl, 'cliente_id,mes_referencia,processo');
+    statusEl.textContent = `✅ ${registros.length} processos de pagamento atualizados pra ${fmtMes(mesRef)}.`;
+    carregarDados();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '❌ Erro: ' + err.message;
+  }
+}
+
+// ── Configurar Cliente ───────────────────────────────────────────────────
+async function carregarListaClientesConfig(){
+  const { data } = await sb.from('rel_clientes').select('*').order('nome');
+  document.getElementById('tbodyClientes').innerHTML = (data||[]).map(c => `
+    <tr><td>${esc(c.nome)}</td><td class="mono">${esc(c.slug)}</td><td>${c.ativo ? '<span class="badge badge-pago">Ativo</span>' : '<span class="badge badge-none">Inativo</span>'}</td></tr>
+  `).join('') || '<tr><td colspan="3" class="empty-state">Nenhum cliente ainda.</td></tr>';
+}
+
+function cfgAdicionarColuna(idLista, valores){
+  const alvo = document.getElementById(idLista);
+  const linha = document.createElement('div');
+  linha.className = 'col-row';
+  const v = valores || {};
+  linha.innerHTML = `
+    <input type="text" class="cfg-origem" placeholder="Nome da coluna na planilha" value="${esc(v.origem||'')}">
+    <input type="text" class="cfg-label" placeholder="Nome de exibição" value="${esc(v.label||'')}">
+    <select class="cfg-tipo"><option value="texto"${v.tipo!=='numero'?' selected':''}>Texto</option><option value="numero"${v.tipo==='numero'?' selected':''}>Número</option></select>
+    <button type="button" class="icon-btn" onclick="this.parentElement.remove()">✕</button>`;
+  const chaveWrap = document.createElement('label');
+  chaveWrap.style.cssText = 'grid-column:1/3;font-size:11px;display:flex;align-items:center;gap:6px;margin-top:-4px;';
+  chaveWrap.innerHTML = `<input type="checkbox" class="cfg-chave"${v.chave?' checked':''}> é a coluna-chave (identifica o processo)`;
+  alvo.appendChild(linha);
+  alvo.appendChild(chaveWrap);
+}
+
+function cfgAtualizarEncerradoUI(){
+  const fonte = document.querySelector('input[name=cfgEncerradoFonte]:checked').value;
+  document.getElementById('cfgEncerradoCampoStatus').style.display = fonte === 'campo_status' ? '' : 'none';
+}
+
+function cfgLerColunas(idLista){
+  const linhas = document.getElementById(idLista).querySelectorAll('.col-row');
+  return [...linhas].map(linha => ({
+    origem: linha.querySelector('.cfg-origem').value.trim(),
+    label: linha.querySelector('.cfg-label').value.trim(),
+    tipo: linha.querySelector('.cfg-tipo').value,
+    chave: linha.nextElementSibling && linha.nextElementSibling.querySelector('.cfg-chave')
+      ? linha.nextElementSibling.querySelector('.cfg-chave').checked : false,
+  })).filter(c => c.origem);
+}
+
+async function salvarConfigCliente(){
+  const statusEl = document.getElementById('statusConfig');
+  const nome = document.getElementById('cfgNome').value.trim();
+  if(!nome){ statusEl.textContent = 'Informe o nome do cliente.'; return; }
+  const colunasProcessos = cfgLerColunas('cfgColunasProcessos');
+  if(!colunasProcessos.some(c => c.chave)){ statusEl.textContent = 'Marque uma coluna como chave no relatório de Processos.'; return; }
+  const colunasPagamentos = cfgLerColunas('cfgColunasPagamentos');
+
+  const fonte = document.querySelector('input[name=cfgEncerradoFonte]:checked').value;
+  const encerrado = fonte === 'campo_status'
+    ? { fonte, campo: document.getElementById('cfgCampoStatus').value.trim(),
+        valores_encerrado: document.getElementById('cfgValoresEncerrado').value.split(',').map(s=>s.trim()).filter(Boolean),
+        valores_novo: document.getElementById('cfgValoresNovo').value.split(',').map(s=>s.trim()).filter(Boolean) }
+    : { fonte: 'comparacao_mes_anterior' };
+
+  const config = {
+    colunas_processos: colunasProcessos,
+    colunas_pagamentos: colunasPagamentos,
+    encerrado,
+    campo_base_correcao: document.getElementById('cfgCampoBaseCorrecao').value.trim() || null,
+  };
+
+  try{
+    statusEl.textContent = 'Salvando…';
+    const slug = nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+    let { data: existente } = await sb.from('rel_clientes').select('id').eq('slug', slug).limit(1);
+    let clienteId;
+    if(existente && existente.length){
+      clienteId = existente[0].id;
+      await sb.from('rel_clientes').update({ nome, ativo: true }).eq('id', clienteId);
+    } else {
+      const { data: novo, error } = await sb.from('rel_clientes').insert({ nome, slug }).select();
+      if(error) throw error;
+      clienteId = novo[0].id;
+    }
+    await sb.from('rel_config_cliente').insert({ cliente_id: clienteId, config });
+    statusEl.textContent = `✅ Cliente "${nome}" salvo.`;
+    await carregarListaClientesConfig();
+    await carregarClientes();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '❌ Erro: ' + err.message;
+  }
+}
+
+// ── Export ────────────────────────────────────────────────────────────
+function exportarRelatorio(){
+  if(!SNAPSHOT.length){ alert('Ainda carregando os dados — espera um instante e tenta de novo.'); return; }
+  const wb = XLSX.utils.book_new();
+  const clienteNome = (CLIENTES.find(c=>c.id===CLIENTE_ATIVO)||{}).nome || 'Cliente';
+  const cols = colunasProc();
+
+  const resumo = [
+    { Indicador:'Cliente', Valor: clienteNome },
+    { Indicador:'Mês de referência', Valor: fmtMes(MES_ATUAL) },
+    { Indicador:'Total de processos', Valor: SNAPSHOT.length },
+    { Indicador:'Novos no mês', Valor: SNAPSHOT.filter(r=>r.status==='novo').length },
+    { Indicador:'Encerrados no mês', Valor: SNAPSHOT.filter(r=>r.status==='encerrado').length },
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Resumo');
+
+  const chave = campoChaveProc();
+  const campoPago = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_pago;
+  const campoGarantia = CONFIG_ATIVA && CONFIG_ATIVA.pagamentos_campo_garantia;
+  const processos = SNAPSHOT.map(r => {
+    const p = PAGAMENTOS[r[chave]] || {};
+    const linha = { Status: r.status };
+    cols.forEach(c => { linha[c.label] = r[c.origem]; });
+    if(campoPago) linha['Pago no Mês'] = p[campoPago] || 0;
+    if(campoGarantia) linha['Garantia no Mês'] = p[campoGarantia] || 0;
+    return linha;
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(processos), 'Processos');
+
+  XLSX.writeFile(wb, `Relatorio_${clienteNome.replace(/\s+/g,'_')}_${MES_ATUAL||''}.xlsx`);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────
+atualizarCamposIndice();
+cfgAtualizarEncerradoUI();
+carregarClientes();
+</script>
+
+</body>
+</html>
