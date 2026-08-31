@@ -853,7 +853,7 @@ function renderGraficos(){
               legend:{position:'bottom', labels:{boxWidth:12,padding:14}},
               datalabels:{display:true, color:'#fff', font:{weight:'700',size:11}, formatter:fmtRotulo} } }
         : { maintainAspectRatio: false, plugins:{legend:{display:false},
-              datalabels:{display:true, anchor:'end', align:'top', color:'var(--escuro-pc)', font:{weight:'700',size:11}, formatter:fmtRotulo} },
+              datalabels:{display: labels.length<=6, anchor:'end', align:'top', color:'var(--escuro-pc)', font:{weight:'700',size:11}, formatter:fmtRotulo} },
             scales:{ y:{ ticks:{ callback:fmtRotulo } }, x:{ ticks:{ autoSkip:true, maxRotation:60, minRotation:0 } } } },
     });
     CHARTS_ATIVOS.push(chart);
