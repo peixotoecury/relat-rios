@@ -174,6 +174,7 @@ html.gate-open #pwGate{display:none;}
   <button class="tab-btn" onclick="mudarAba('pagamentos')">💰 Pagamentos</button>
   <button class="tab-btn" onclick="mudarAba('depositos')">🏦 Depósitos e Garantias</button>
   <button class="tab-btn" onclick="mudarAba('atualizar')">⬆️ Atualizar Mês</button>
+  <button class="tab-btn" onclick="mudarAba('tabelatr')">📈 Tabela TR (Bacen)</button>
   <button class="tab-btn" onclick="mudarAba('config')">⚙️ Configurar Cliente</button>
 </div>
 
@@ -307,10 +308,10 @@ html.gate-open #pwGate{display:none;}
             <input type="month" id="uploadMes" class="form-input">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label">Origem do valor monetário</label>
+            <label class="form-label">O advogado quer aplicar correção manual neste upload?</label>
             <select id="origemValor" class="form-input" onchange="atualizarCamposIndice()">
-              <option value="elaw">eLaw (valores já calculados na planilha)</option>
-              <option value="manual">Manual (aplicar índice de atualização)</option>
+              <option value="elaw">Não — usar os valores já calculados na planilha do eLaw</option>
+              <option value="manual">Sim — aplicar índice de atualização (informar abaixo)</option>
             </select>
           </div>
         </div>
@@ -348,6 +349,25 @@ html.gate-open #pwGate{display:none;}
             <div id="statusPagamentos" style="font-size:12px;margin-top:10px;color:var(--muted);"></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-tabelatr" class="page">
+    <div class="dash-card">
+      <div class="dash-card-head"><span>TR — Taxa Referencial (série 226, Bacen)</span></div>
+      <div class="dash-card-body">
+        <div class="filter-row">
+          <div><label class="form-label">De</label><input type="date" id="trDataInicio" class="form-input"></div>
+          <div><label class="form-label">Até</label><input type="date" id="trDataFim" class="form-input"></div>
+          <button class="btn" style="margin-top:18px;" onclick="carregarTabelaTR()">Buscar</button>
+        </div>
+        <div class="hint" id="trResumo" style="margin-bottom:12px;"></div>
+        <div class="table-wrap"><table class="rel-table">
+          <thead><tr><th>Data</th><th>TR do dia (%)</th><th>TR + juros de 1%/mês (%)</th></tr></thead>
+          <tbody id="tbodyTR"></tbody>
+        </table></div>
+        <div class="hint" style="margin-top:10px;">Dado direto da API pública do Banco Central (SGS, série 226). Fonte oficial: <a href="https://www3.bcb.gov.br/sgspub/localizarseries/localizarSeries.do?method=prepararTelaLocalizarSeries" target="_blank" rel="noopener">bcb.gov.br/sgspub</a>. Pra corrigir um valor, some o TR dos meses do período (ou use um valor por mês) e acrescente 1% de juros de mora ao mês — a coluna da direita já mostra esse acréscimo dia a dia como referência rápida.</div>
       </div>
     </div>
   </div>
@@ -470,7 +490,7 @@ let MENSAGEM_VAZIO = null;
 
 function mudarAba(aba){
   ABA_ATIVA = aba;
-  const ordem = ['geral','ponte','movimentacoes','processos','pagamentos','depositos','atualizar','config'];
+  const ordem = ['geral','ponte','movimentacoes','processos','pagamentos','depositos','atualizar','tabelatr','config'];
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ordem[i] === aba));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-'+aba).classList.add('active');
@@ -478,6 +498,7 @@ function mudarAba(aba){
   if(aba === 'movimentacoes') renderMovimentacoes();
   if(aba === 'pagamentos') renderPagamentos();
   if(aba === 'depositos') renderDepositosGarantias();
+  if(aba === 'tabelatr') carregarTabelaTR();
 }
 
 // ── Carregamento de clientes e config ───────────────────────────────────
@@ -788,6 +809,48 @@ function renderDepositosGarantias(){
     }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-state">Nenhum dado carregado pra este mês.</td></tr>`;
 }
 
+// ── Tabela TR (Bacen, série 226 — SGS) ───────────────────────────────────
+function dataBrParaIso(dbr){
+  const [d,m,a] = dbr.split('/');
+  return `${a}-${m}-${d}`;
+}
+function isoParaBr(diso){
+  const [a,m,d] = diso.split('-');
+  return `${d}/${m}/${a}`;
+}
+let TR_CACHE = null;
+async function buscarSerieTR(dataInicioIso, dataFimIso){
+  const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.226/dados?formato=json&dataInicial=${isoParaBr(dataInicioIso)}&dataFinal=${isoParaBr(dataFimIso)}`;
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error('Bacen respondeu ' + resp.status);
+  return resp.json();
+}
+async function carregarTabelaTR(){
+  const tbody = document.getElementById('tbodyTR');
+  const resumo = document.getElementById('trResumo');
+  let inicio = document.getElementById('trDataInicio').value;
+  let fim = document.getElementById('trDataFim').value;
+  if(!fim){ fim = new Date().toISOString().slice(0,10); document.getElementById('trDataFim').value = fim; }
+  if(!inicio){
+    const d = new Date(fim); d.setMonth(d.getMonth() - 6);
+    inicio = d.toISOString().slice(0,10);
+    document.getElementById('trDataInicio').value = inicio;
+  }
+  tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Buscando na API do Bacen…</td></tr>';
+  try{
+    const serie = await buscarSerieTR(inicio, fim);
+    TR_CACHE = serie;
+    const soma = serie.reduce((s,r) => s + parseFloat(r.valor), 0);
+    resumo.textContent = `${serie.length} valor(es) no período · soma simples do TR no período: ${soma.toFixed(4)}% (referência bruta — pra corrigir de verdade, use 1 valor por mês do período, não a soma de todos os dias).`;
+    tbody.innerHTML = serie.slice().reverse().map(r => {
+      const v = parseFloat(r.valor);
+      return `<tr><td>${esc(r.data)}</td><td class="mono">${v.toFixed(4)}</td><td class="mono">${(v+1).toFixed(4)}</td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="empty-state">Nenhum valor encontrado nesse período.</td></tr>';
+  }catch(err){
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">Erro buscando no Bacen: ${esc(err.message)}</td></tr>`;
+  }
+}
+
 // ── Movimentações do mês (diff campo a campo vs. mês anterior) ──────────
 async function renderMovimentacoes(){
   const hint = document.getElementById('hintMovimentacoes');
@@ -905,14 +968,50 @@ function atualizarCamposIndice(){
 function adicionarLinhaIndice(soRegistro){
   const alvo = document.getElementById(soRegistro ? 'listaIndicesRegistro' : 'listaIndices');
   const linha = document.createElement('div');
-  linha.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+  linha.style.cssText = 'margin-bottom:10px;padding:8px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);';
   linha.innerHTML = `
-    <select class="form-input idx-tipo" style="max-width:140px;">
-      <option value="IPCA">IPCA</option><option value="SELIC">SELIC</option><option value="TR">TR</option><option value="OUTRO">Outro</option>
-    </select>
-    <input type="number" step="0.0001" class="form-input idx-valor" placeholder="Valor % do período">
-    <button type="button" class="icon-btn" onclick="this.parentElement.remove()">✕</button>`;
+    <div style="display:flex;gap:8px;">
+      <select class="form-input idx-tipo" style="max-width:140px;" onchange="this.closest('div').nextElementSibling.style.display = this.value==='TR' ? 'flex' : 'none';">
+        <option value="IPCA">IPCA</option><option value="SELIC">SELIC</option><option value="TR">TR</option><option value="OUTRO">Outro</option>
+      </select>
+      <input type="number" step="0.0001" class="form-input idx-valor" placeholder="Valor % do período (se souber) ou calcule pelo TR ao lado">
+      <button type="button" class="icon-btn" onclick="this.closest('[style*=padding]').remove()">✕</button>
+    </div>
+    <div style="display:none;gap:8px;margin-top:8px;align-items:center;">
+      <span class="hint" style="margin:0;">Desde quando (TR):</span>
+      <input type="date" class="form-input idx-desde" style="max-width:160px;">
+      <button type="button" class="btn-outline" onclick="calcularTRLinha(this)">Calcular TR do período</button>
+      <span class="hint idx-tr-detalhe" style="margin:0;"></span>
+    </div>`;
   alvo.appendChild(linha);
+}
+async function calcularTRLinha(botao){
+  const bloco = botao.closest('[style*="padding"]');
+  const dataDesde = bloco.querySelector('.idx-desde').value;
+  const detalhe = bloco.querySelector('.idx-tr-detalhe');
+  const campoValor = bloco.querySelector('.idx-valor');
+  const mes = document.getElementById('uploadMes').value;
+  if(!dataDesde){ detalhe.textContent = 'Informe a data "desde quando".'; return; }
+  if(!mes){ detalhe.textContent = 'Escolha o mês de referência do upload primeiro.'; return; }
+  const dataAte = mes + '-01';
+  detalhe.textContent = 'Calculando…';
+  try{
+    const serie = await buscarSerieTR(dataDesde, dataAte);
+    // Aproxima 1 valor por mês: pega a série completa (diária) e faz a média
+    // dos dias de cada mês-calendário — evita somar dias sobrepostos.
+    const porMes = {};
+    serie.forEach(r => {
+      const iso = dataBrParaIso(r.data);
+      const chave = iso.slice(0,7);
+      (porMes[chave] = porMes[chave] || []).push(parseFloat(r.valor));
+    });
+    const mediasMensais = Object.entries(porMes).sort().map(([m,vals]) => vals.reduce((a,b)=>a+b,0)/vals.length);
+    const somaTR = mediasMensais.reduce((a,b)=>a+b,0);
+    campoValor.value = somaTR.toFixed(4);
+    detalhe.textContent = `${mediasMensais.length} mês(es) — TR acumulado: ${somaTR.toFixed(4)}% (+1%/mês de juros já é somado automaticamente na hora de aplicar). Confira antes de confirmar — valor prenchido é editável.`;
+  }catch(err){
+    detalhe.textContent = 'Erro: ' + err.message;
+  }
 }
 function coletarIndices(soRegistro){
   const alvo = document.getElementById(soRegistro ? 'listaIndicesRegistro' : 'listaIndices');
