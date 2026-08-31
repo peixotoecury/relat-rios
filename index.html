@@ -781,6 +781,15 @@ let CHART_COMPARATIVO = null;
 
 // ── Gráficos (lista configurável, tantos quanto o cliente precisar) ─────
 const CORES_GRAFICO = ['#00A9E0','#C0392B','#B85C00','#117A65','#7E98AA','#8E44AD','#2C3E50','#D4AC0D'];
+// Se as categorias do gráfico forem Provável/Possível/Remoto, usa a mesma
+// convenção de cor do resto do sistema em vez da paleta genérica.
+function corDoGrafico(labels, tipo, indiceGrafico){
+  const riscoCor = { 'provável':'#C0392B', 'possível':'#B85C00', 'remoto':'#117A65' };
+  if(labels.every(l => riscoCor[String(l).toLowerCase()])){
+    return labels.map(l => riscoCor[String(l).toLowerCase()]);
+  }
+  return tipo === 'doughnut' ? CORES_GRAFICO : CORES_GRAFICO[indiceGrafico % CORES_GRAFICO.length];
+}
 let CHARTS_ATIVOS = [];
 function renderGraficos(){
   CHARTS_ATIVOS.forEach(c => c.destroy());
@@ -811,7 +820,10 @@ function renderGraficos(){
     } else {
       const porGrupo = {};
       ativos.forEach(r => {
-        const g = r[cfg.campo] || 'Outros/Não classificado';
+        // Normaliza maiúscula/minúscula na hora de agrupar — dado migrado
+        // sem passar pelo formatador de upload gera duplicata visual
+        // (ex: "Responsabilidade Direta" x "RESPONSABILIDADE DIRETA").
+        const g = padronizarTexto(r[cfg.campo]) || 'Outros/Não classificado';
         const v = cfg.valor ? (Number(r[cfg.valor])||0) : 1;
         porGrupo[g] = (porGrupo[g]||0) + v;
       });
@@ -833,7 +845,7 @@ function renderGraficos(){
     const fmtRotulo = v => ehMoeda ? fmtMi(v) : String(v);
     const chart = new Chart(document.getElementById(`chartDin${i}`), {
       type: tipo,
-      data: { labels, datasets:[{ data: vals, backgroundColor: tipo==='doughnut' ? CORES_GRAFICO : CORES_GRAFICO[i % CORES_GRAFICO.length], maxBarThickness: 56 }] },
+      data: { labels, datasets:[{ data: vals, backgroundColor: corDoGrafico(labels, tipo, i), maxBarThickness: 56 }] },
       options: tipo==='doughnut'
         ? { maintainAspectRatio: false, plugins:{
               legend:{position:'bottom', labels:{boxWidth:12,padding:14}},
